@@ -40,23 +40,23 @@ import { useProximityAudio } from "./useProximityAudio"
 import {
   exitSpot,
   freeSeatNear,
-  isRoomLike,
   isSeatTaken,
   joinSpot,
   rectToPx,
   roomAt,
-  roomLikeNear,
-  zoneAt,
+  roomContextAt,
+  roomNear,
   seatedTableAt,
+  spawnPoint,
   standSpot,
   type Zone,
 } from "./layout"
 import { DEFAULT_LAYOUT } from "./defaultLayout"
-import { AVATAR_SIZE, type Position, type Size } from "./types"
+import { AVATAR_SIZE, type Position } from "./types"
 
-// Env-specific so dev (localhost) and prod (Railway) are independent offices — separate
-// Stream call AND separate relay room, so they never see or hear each other.
-const ROOM = `office-${import.meta.env.MODE}`
+// Env-specific so dev (localhost) and prod (Railway) are independent Offices — separate
+// Stream call AND separate relay channel, so they never see or hear each other.
+const OFFICE_ID = `office-${import.meta.env.MODE}`
 
 // World-px of width shown across a phone screen (~2x zoom vs the full 900px floor).
 const MOBILE_VIEW_WIDTH = 430
@@ -64,6 +64,11 @@ const MOBILE_VIEW_WIDTH = 430
 // Proximity thresholds for the mobile contextual action button.
 const ROOM_PROXIMITY = AVATAR_SIZE // px from a room wall that counts as "near"
 const SEAT_PROXIMITY = 80 // px from a chair that counts as "near"
+
+// Leftovers from the fixed floorplan: these two Rooms hold one person each, and their walls
+// are too tight for exitSpot to find open floor, so they exit to hand-placed spots. Quirks of
+// one authored office rather than anything a Zone kind carries — they go when Layouts do.
+const SINGLE_OCCUPANT_ROOM_IDS = new Set(["T1", "T2"])
 
 // Mobile: while the avatar sits under the top-left HUD (clamped camera parks it there),
 // fade the HUD out. Fractions of the floor that count as "top-left".
@@ -77,17 +82,6 @@ interface OfficeRoomProps {
   localUserId: string
   localName: string
   onLeave: () => void
-}
-
-// Spawn everyone in the open left corridor beside the tables (below room C, above
-// A/B, left of the tables), spread by user id so nobody starts trapped in a room.
-function spawnFor(userId: string, floor: Size): Position {
-  let hash = 0
-  for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) | 0
-  const h = Math.abs(hash)
-  const fx = 0.08 + (h % 240) / 1000 // 0.08 .. 0.32, clear of the tables (start at 0.42)
-  const fy = 0.66 + ((h >> 5) % 80) / 1000 // 0.66 .. 0.74, tight cluster so lobby-mates are within earshot
-  return { x: fx * floor.width, y: fy * floor.height }
 }
 
 export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps) {
@@ -112,7 +106,9 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
   // The office being rendered. One fixed layout for now; later this is fetched per office.
   const layout = DEFAULT_LAYOUT
   const floor = layout.floor
-  const initial = useMemo(() => spawnFor(localUserId, floor), [localUserId, floor])
+  const half = AVATAR_SIZE / 2
+  // Arrivals scatter inside the office's Spawn Zone, deterministically per user id.
+  const initial = useMemo(() => spawnPoint(layout, localUserId, half), [layout, localUserId, half])
   const joinedRef = useRef(false)
 
   // Join once, publish mic, keep camera off (audio-only office).
@@ -137,7 +133,7 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
   // relay; a ref bridges the socket's incoming handler to the chat hook created below
   // (the socket is set up before the hook, so this breaks the ordering cycle).
   const chatIncomingRef = useRef<(m: ChatMessage) => void>(() => {})
-  const rt = useRealtime(ROOM, localUserId, localName, (m) => chatIncomingRef.current(m))
+  const rt = useRealtime(OFFICE_ID, localUserId, localName, (m) => chatIncomingRef.current(m))
   const { pos: localPos, teleport, walkTo, move } = useMovement(rt.send, initial, layout)
   const isMobile = useIsMobile()
   const positions = useInterpolatedPositions(rt.targetsRef)
@@ -209,11 +205,10 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
     }
   }
 
-  const half = AVATAR_SIZE / 2
-  const currentRoom = roomAt(layout, localPos) // private room (A/B/C) — drives chat/audio/video
-  const insideZone = zoneAt(layout, localPos) // room-like enclosure (adds toilets) — drives Join/Leave label
+  const currentRoom = roomContextAt(layout, localPos) // private Room — drives chat/audio/video
+  const insideRoom = roomAt(layout, localPos) // any Room, private or not — drives Join/Leave
   const seatedTable = seatedTableAt(layout, localPos, half)
-  // Avatar drifted into the top-left corner (toilet wing / top of the spawn corridor), where
+  // Avatar drifted into the top-left corner (the non-private Rooms up top), where
   // the clamped mobile camera parks it under the top-left HUD — fade that HUD out so it isn't
   // covered. Only mobile clamps the camera there; desktop centers, so it never applies.
   const hudFaded =
@@ -313,7 +308,7 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
     if (!p?.publishedTracks.includes(needed)) return null
     if (userId !== localUserId) {
       const peerPos = positions[userId]
-      if (!peerPos || roomAt(layout, peerPos) !== currentRoom) return null
+      if (!peerPos || roomContextAt(layout, peerPos) !== currentRoom) return null
       return { participant: p, name: peerPos.name || p.name || userId, isSelf: false, track }
     }
     return { participant: p, name: localName, isSelf: true, track }
@@ -366,16 +361,16 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
     return counts
   }, [positions, watchingId])
 
-  // Click a room to join it (or leave if already inside — teleport through the doorway).
-  // Use zoneAt (room-like: rooms + toilets), not currentRoom (private rooms only), so the
-  // join/leave toggle works for toilets even though they carry no privacy.
+  // Click a Room to join it (or leave if already inside — teleport through the doorway).
+  // Keyed off roomAt (any Room), not currentRoom (private Rooms only), so the join/leave
+  // toggle works for a non-private Room even though it carries no privacy.
   const onEnter = (zone: Zone) => {
-    if (!isRoomLike(zone.kind)) return
-    const inside = zoneAt(layout, localPos)
+    if (zone.kind !== "room") return
+    const inside = roomAt(layout, localPos)
     if (inside !== zone.id) {
-      // Toilets are single stalls: refuse entry if a peer is already inside.
-      if (zone.kind === "toilet") {
-        const taken = Object.values(positions).some((p) => zoneAt(layout, p) === zone.id)
+      // A stall holds one person: refuse entry if a peer is already inside.
+      if (SINGLE_OCCUPANT_ROOM_IDS.has(zone.id)) {
+        const taken = Object.values(positions).some((p) => roomAt(layout, p) === zone.id)
         if (taken) {
           toast(`${zone.label} is occupied`)
           return
@@ -384,15 +379,15 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
       teleport(joinSpot(layout, zone, localPos, half))
       return
     }
-    // Leaving. Toilets are tightly walled, so exitSpot can land in a wall — send them to a
-    // hardcoded open spot in the corridor between the two stalls: the male stall (top) exits
-    // just below it, the female stall (bottom) exits just above it.
+    // Leaving. These two are tightly walled, so exitSpot can land in a wall — send them to a
+    // hardcoded open spot in the corridor between them: the top one exits just below it, the
+    // bottom one just above it.
     // Room C exits into the open gap beside the bottom wall and C; others use the nearest wall.
-    if (zone.kind === "toilet") {
+    if (SINGLE_OCCUPANT_ROOM_IDS.has(zone.id)) {
       teleport(
         zone.id === "T1"
-          ? { x: 0.08 * floor.width, y: 0.09 * floor.height } // Male: below the stall, in the wing
-          : { x: 0.12 * floor.width, y: 0.09 * floor.height }, // Female: above the stall, in the wing
+          ? { x: 0.08 * floor.width, y: 0.09 * floor.height } // top: below it, in the wing
+          : { x: 0.12 * floor.width, y: 0.09 * floor.height }, // bottom: above it, in the wing
       )
       return
     }
@@ -419,19 +414,19 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
   }
 
   // Single contextual action for where the avatar is standing, surfaced as the mobile
-  // bottom-center button. Priority: seated > inside a room > near a free chair > near a room.
+  // bottom-center button. Priority: seated > inside a Room > near a free chair > near a Room.
   // Reuses the same handlers as the click-on-floor path. Computed inline (not memoized):
   // `localPos` changes every animation frame, so a memo would recompute constantly anyway
   // while also having to omit the (non-stable) run handlers from its deps.
   const floorAction: FloorAction | null = (() => {
     if (seatedTable) return { kind: "stand", label: "Stand up", run: standUp }
-    if (insideZone) {
-      const z = layout.zones.find((x) => x.id === insideZone)
+    if (insideRoom) {
+      const z = layout.zones.find((x) => x.id === insideRoom)
       if (z) return { kind: "leave", label: `Leave ${z.label}`, run: () => onEnter(z) }
     }
     const seat = freeSeatNear(layout, localPos, half, SEAT_PROXIMITY, Object.values(positions))
     if (seat) return { kind: "sit", label: "Sit", run: () => onSit(seat.zone, seat.seat) }
-    const room = roomLikeNear(layout, localPos, ROOM_PROXIMITY)
+    const room = roomNear(layout, localPos, ROOM_PROXIMITY)
     if (room) return { kind: "join", label: `Join ${room.label}`, run: () => onEnter(room) }
     return null
   })()
@@ -463,7 +458,7 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
         layout={layout}
         viewWidth={isMobile ? MOBILE_VIEW_WIDTH : undefined}
         positions={positions}
-        currentRoom={insideZone}
+        insideRoom={insideRoom}
         speakingIds={speakingIds}
         mutedIds={mutedIds}
         participantsById={participantsById}

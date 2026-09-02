@@ -7,6 +7,7 @@ import express from "express"
 import cors from "cors"
 import { WebSocketServer } from "ws"
 import { StreamClient } from "@stream-io/node-sdk"
+import { attachRelay } from "./relay.mjs"
 
 // Separate Stream apps per environment: dev keys in .dev, prod keys in .prod, anything shared
 // in .env. NODE_ENV picks the file — `npm run dev` sets development, `npm start` production.
@@ -75,152 +76,15 @@ if (existsSync(distDir)) {
 }
 
 // ---------------------------------------------------------------------------
-// Real-time position relay (WebSocket).
+// Real-time position + chat relay (WebSocket).
 // Stream's custom-event REST endpoint is rate-limited (~3/s) and unsuitable for
 // continuous avatar movement, so positions ride this lightweight fan-out instead.
-// Media + proximity audio stay on Stream.
+// Media + proximity audio stay on Stream. The relay itself — including the chat
+// isolation it enforces — lives in ./relay.mjs.
 // ---------------------------------------------------------------------------
 const httpServer = createServer(app)
 const wss = new WebSocketServer({ server: httpServer, path: "/ws" })
-
-// room -> Set<socket>. Each socket carries { room, id, name, x, y }.
-const rooms = new Map()
-
-// Room-context isolation for chat, enforced here so a room's messages never leave the
-// server to anyone outside it (positions already stream to everyone; chat text must not
-// leak the same way). Mirrors the room rects + floor size from src/office/defaultLayout.ts
-// — keep in sync if those change. Only rooms (A/B/C) are private; the open floor is null.
-const FLOOR_W = 900
-const FLOOR_H = 2000
-const ROOM_RECTS = [
-  { id: "C", x: 0.5, y: 0.28, w: 0.5, h: 0.24 },
-  { id: "A", x: 0.0, y: 0.88, w: 0.5, h: 0.12 },
-  { id: "B", x: 0.5, y: 0.88, w: 0.5, h: 0.12 },
-]
-
-function zoneOf(x, y) {
-  const nx = x / FLOOR_W
-  const ny = y / FLOOR_H
-  for (const r of ROOM_RECTS) {
-    if (nx >= r.x && nx <= r.x + r.w && ny >= r.y && ny <= r.y + r.h) return r.id
-  }
-  return null
-}
-
-// The peer-state payload other clients render from (position + presence flags).
-function stateOf(meta) {
-  return {
-    id: meta.id,
-    name: meta.name,
-    x: meta.x,
-    y: meta.y,
-    deafened: meta.deafened,
-    watching: meta.watching,
-  }
-}
-
-function broadcast(room, senderSock, data) {
-  const peers = rooms.get(room)
-  if (!peers) return
-  const msg = JSON.stringify(data)
-  for (const sock of peers) {
-    if (sock !== senderSock && sock.readyState === sock.OPEN) sock.send(msg)
-  }
-}
-
-wss.on("connection", (sock) => {
-  sock.meta = null
-
-  sock.on("message", (raw) => {
-    let m
-    try {
-      m = JSON.parse(raw.toString())
-    } catch {
-      return
-    }
-
-    if (m.t === "join") {
-      const room = String(m.room || "office-main")
-      sock.meta = {
-        room,
-        id: String(m.id),
-        name: String(m.name || m.id),
-        x: 0,
-        y: 0,
-        deafened: false,
-        watching: null,
-      }
-      if (!rooms.has(room)) rooms.set(room, new Set())
-      rooms.get(room).add(sock)
-
-      // Send the newcomer a snapshot of everyone already here.
-      const peers = []
-      for (const other of rooms.get(room)) {
-        if (other !== sock && other.meta) peers.push(stateOf(other.meta))
-      }
-      sock.send(JSON.stringify({ t: "snapshot", peers }))
-      return
-    }
-
-    if (m.t === "move" && sock.meta) {
-      sock.meta.x = m.x
-      sock.meta.y = m.y
-      broadcast(sock.meta.room, sock, { t: "state", ...stateOf(sock.meta) })
-      return
-    }
-
-    // Deafen toggle: purely a presence flag (audio itself is silenced client-side). Store
-    // it and re-broadcast the peer's current state so everyone updates the badge.
-    if (m.t === "deafen" && sock.meta) {
-      sock.meta.deafened = !!m.on
-      broadcast(sock.meta.room, sock, { t: "state", ...stateOf(sock.meta) })
-      return
-    }
-
-    // Watch flag: the user id of the screen this peer is watching (or null). Presence only —
-    // re-broadcast so the sharer's avatar/modal watcher count updates. Room isolation isn't
-    // enforced here: it's just an id count, and you can only watch a screen you can already
-    // see (the client gates that), so nothing private leaks.
-    if (m.t === "watch" && sock.meta) {
-      sock.meta.watching = m.target ? String(m.target) : null
-      broadcast(sock.meta.room, sock, { t: "state", ...stateOf(sock.meta) })
-      return
-    }
-
-    // Chat rides the same relay, but room isolation is enforced HERE: the message only
-    // reaches sockets whose current position shares the sender's room-context, so a
-    // private room's chat never leaves the server to anyone outside it. Sender local-
-    // echoes their own message (we never send it back to them).
-    if (m.t === "chat" && sock.meta) {
-      // Slice by code points (spread → array) so the 500-char cap never splits a
-      // surrogate pair (emoji, etc.) into a broken half-character.
-      const text = [...String(m.text ?? "")].slice(0, 500).join("")
-      if (!text) return
-      const zone = zoneOf(sock.meta.x, sock.meta.y)
-      const peers = rooms.get(sock.meta.room)
-      if (!peers) return
-      const msg = JSON.stringify({
-        t: "chat",
-        id: sock.meta.id,
-        name: sock.meta.name,
-        text,
-        room: zone,
-      })
-      for (const other of peers) {
-        if (other === sock || other.readyState !== other.OPEN || !other.meta) continue
-        if (zoneOf(other.meta.x, other.meta.y) === zone) other.send(msg)
-      }
-    }
-  })
-
-  sock.on("close", () => {
-    if (!sock.meta) return
-    const { room, id } = sock.meta
-    rooms.get(room)?.delete(sock)
-    if (rooms.get(room)?.size === 0) rooms.delete(room)
-    broadcast(room, sock, { t: "leave", id })
-  })
-})
+const relay = attachRelay(wss)
 
 httpServer.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT} (ws: /ws)`)
@@ -234,15 +98,7 @@ function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
   console.log("shutting down: closing sockets…")
-  for (const peers of rooms.values()) {
-    for (const sock of peers) {
-      try {
-        sock.close(1012, "server restarting")
-      } catch {
-        /* already gone */
-      }
-    }
-  }
+  relay.closeAll()
   wss.close()
   httpServer.close(() => process.exit(0))
   // Failsafe in case a connection refuses to drain.

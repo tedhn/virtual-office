@@ -16,7 +16,7 @@ export interface ChatMessage {
   id: string
   name: string
   text: string
-  /** Sender's room-context at send time: room id (A/B/C) or null for the open floor. */
+  /** Sender's Room-context at send time: a private Room's id, or null for the open Floor. */
   room: string | null
 }
 
@@ -46,7 +46,7 @@ function wsUrl(): string {
  * rate-limited; this channel has no such limit.
  */
 export function useRealtime(
-  roomId: string,
+  officeId: string,
   userId: string,
   name: string,
   onChat?: (m: ChatMessage) => void,
@@ -69,7 +69,7 @@ export function useRealtime(
       sockRef.current = sock
 
       sock.onopen = () => {
-        sock.send(JSON.stringify({ t: "join", room: roomId, id: userId, name }))
+        sock.send(JSON.stringify({ t: "join", office: officeId, id: userId, name }))
       }
 
       sock.onmessage = (ev) => {
@@ -124,7 +124,7 @@ export function useRealtime(
       sockRef.current = null
       targetsRef.current.clear()
     }
-  }, [roomId, userId, name])
+  }, [officeId, userId, name])
 
   const send: Send = (x, y) => {
     const sock = sockRef.current
@@ -135,8 +135,8 @@ export function useRealtime(
   const sendChat: Realtime["sendChat"] = (text) => {
     const sock = sockRef.current
     if (!sock || sock.readyState !== WebSocket.OPEN) return
-    // No room field: the server derives the sender's room-context from their position
-    // and enforces isolation, so sending it here would be redundant (and untrusted).
+    // No Room-context is sent: the server derives it from our reported position and
+    // enforces isolation itself, so sending it here would be redundant (and untrusted).
     sock.send(JSON.stringify({ t: "chat", text }))
   }
 

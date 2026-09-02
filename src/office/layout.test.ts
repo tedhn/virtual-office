@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { DEFAULT_LAYOUT } from "./defaultLayout"
 import {
-  hitsTable,
+  hitsSolid,
   roomAt,
+  roomContextAt,
   seatSlots,
   seatedTableAt,
-  zoneAt,
+  spawnPoint,
   type Layout,
   type Zone,
 } from "./layout"
@@ -18,9 +19,21 @@ const TEST_FLOOR = { width: 1000, height: 1000 }
 
 const layoutOf = (...zones: Zone[]): Layout => ({ floor: TEST_FLOOR, zones })
 
-/** Rooms 200..600 on both axes; the toilet is the top-left 0..100 square. */
-const room = (id: string): Zone => ({ id, kind: "room", rect: { x: 0.2, y: 0.2, w: 0.4, h: 0.4 } })
-const toilet = (id: string): Zone => ({ id, kind: "toilet", rect: { x: 0, y: 0, w: 0.1, h: 0.1 } })
+/** A private Room: 200..600 on both axes. */
+const room = (id: string): Zone => ({
+  id,
+  kind: "room",
+  private: true,
+  rect: { x: 0.2, y: 0.2, w: 0.4, h: 0.4 },
+})
+
+/** A non-private Room — enclosed, but no isolation. The top-left 0..100 square. */
+const openRoom = (id: string): Zone => ({
+  id,
+  kind: "room",
+  private: false,
+  rect: { x: 0, y: 0, w: 0.1, h: 0.1 },
+})
 
 /** A free-standing table: 200..600 across, 400..450 down. Chairs land at y 372 and y 478. */
 const table = (id: string, seats?: number): Zone => ({
@@ -31,84 +44,95 @@ const table = (id: string, seats?: number): Zone => ({
 })
 
 describe("Room-context resolution", () => {
-  it("names the Room a point stands inside", () => {
-    expect(roomAt(layoutOf(room("C")), { x: 400, y: 400 })).toBe("C")
+  it("names the private Room a point stands inside", () => {
+    expect(roomContextAt(layoutOf(room("C")), { x: 400, y: 400 })).toBe("C")
   })
 
-  it("resolves to the open Floor when the point is inside no Room", () => {
-    expect(roomAt(layoutOf(room("C")), { x: 700, y: 400 })).toBeNull()
+  it("returns the open Floor for a point outside every Room", () => {
+    expect(roomContextAt(layoutOf(room("C")), { x: 700, y: 400 })).toBeNull()
   })
 
-  it("counts a point on a Room's edge as inside it", () => {
+  it("counts a point on a Room's own edge as inside", () => {
     const layout = layoutOf(room("C"))
-    expect(roomAt(layout, { x: 200, y: 200 })).toBe("C")
-    expect(roomAt(layout, { x: 600, y: 600 })).toBe("C")
-    expect(roomAt(layout, { x: 601, y: 400 })).toBeNull()
+    expect(roomContextAt(layout, { x: 200, y: 200 })).toBe("C")
+    expect(roomContextAt(layout, { x: 600, y: 600 })).toBe("C")
+    expect(roomContextAt(layout, { x: 601, y: 400 })).toBeNull()
   })
 
-  it("leaves a toilet on the open Floor: enclosed, but not private", () => {
-    const layout = layoutOf(toilet("T1"))
-    expect(roomAt(layout, { x: 50, y: 50 })).toBeNull()
-    expect(zoneAt(layout, { x: 50, y: 50 })).toBe("T1")
+  it("leaves a non-private Room's occupant on the open Floor", () => {
+    const layout = layoutOf(openRoom("T1"))
+    expect(roomContextAt(layout, { x: 50, y: 50 })).toBeNull()
+    expect(roomAt(layout, { x: 50, y: 50 })).toBe("T1")
   })
 
-  it("treats rooms and toilets alike for enclosure", () => {
-    const layout = layoutOf(room("C"), toilet("T1"))
-    expect(zoneAt(layout, { x: 400, y: 400 })).toBe("C")
-    expect(zoneAt(layout, { x: 50, y: 50 })).toBe("T1")
-    expect(zoneAt(layout, { x: 700, y: 700 })).toBeNull()
+  it("treats a Room with no privacy flag as not private", () => {
+    const bare: Zone = { id: "R", kind: "room", rect: { x: 0.2, y: 0.2, w: 0.4, h: 0.4 } }
+    expect(roomContextAt(layoutOf(bare), { x: 400, y: 400 })).toBeNull()
+    expect(roomAt(layoutOf(bare), { x: 400, y: 400 })).toBe("R")
   })
 
-  it("resolves the default office's rooms", () => {
-    expect(roomAt(DEFAULT_LAYOUT, { x: 675, y: 800 })).toBe("C")
-    expect(roomAt(DEFAULT_LAYOUT, { x: 200, y: 1900 })).toBe("A")
-    expect(roomAt(DEFAULT_LAYOUT, { x: 700, y: 1900 })).toBe("B")
-    expect(roomAt(DEFAULT_LAYOUT, { x: 400, y: 1200 })).toBeNull()
-    // Toilets are enclosures without privacy.
-    expect(roomAt(DEFAULT_LAYOUT, { x: 70, y: 70 })).toBeNull()
-    expect(zoneAt(DEFAULT_LAYOUT, { x: 70, y: 70 })).toBe("T1")
-    expect(zoneAt(DEFAULT_LAYOUT, { x: 100, y: 260 })).toBe("T2")
+  it("treats private and non-private Rooms alike for enclosure", () => {
+    const layout = layoutOf(room("C"), openRoom("T1"))
+    expect(roomAt(layout, { x: 400, y: 400 })).toBe("C")
+    expect(roomAt(layout, { x: 50, y: 50 })).toBe("T1")
+    expect(roomAt(layout, { x: 700, y: 700 })).toBeNull()
   })
 
-  it("answers for the layout it is given, not a module-level floorplan", () => {
-    const here = layoutOf({ ...room("C"), rect: { x: 0, y: 0, w: 0.5, h: 0.5 } })
-    const there = layoutOf({ ...room("C"), rect: { x: 0.5, y: 0.5, w: 0.5, h: 0.5 } })
-    expect(roomAt(here, { x: 100, y: 100 })).toBe("C")
-    expect(roomAt(there, { x: 100, y: 100 })).toBeNull()
+  it("resolves the default office's Rooms", () => {
+    expect(roomContextAt(DEFAULT_LAYOUT, { x: 675, y: 800 })).toBe("C")
+    expect(roomContextAt(DEFAULT_LAYOUT, { x: 200, y: 1900 })).toBe("A")
+    expect(roomContextAt(DEFAULT_LAYOUT, { x: 700, y: 1900 })).toBe("B")
+    expect(roomContextAt(DEFAULT_LAYOUT, { x: 400, y: 1200 })).toBeNull()
+    // The two former toilets are non-private Rooms: enclosed, but still on the open Floor.
+    expect(roomContextAt(DEFAULT_LAYOUT, { x: 70, y: 70 })).toBeNull()
+    expect(roomAt(DEFAULT_LAYOUT, { x: 70, y: 70 })).toBe("T1")
+    expect(roomAt(DEFAULT_LAYOUT, { x: 100, y: 260 })).toBe("T2")
+  })
+
+  it("reads the Layout it is handed, not a floorplan of its own", () => {
+    const here = layoutOf({ id: "C", kind: "room", private: true, rect: { x: 0, y: 0, w: 0.5, h: 0.5 } })
+    const there = layoutOf({ id: "C", kind: "room", private: true, rect: { x: 0.5, y: 0.5, w: 0.5, h: 0.5 } })
+    expect(roomContextAt(here, { x: 100, y: 100 })).toBe("C")
+    expect(roomContextAt(there, { x: 100, y: 100 })).toBeNull()
   })
 })
 
 describe("Solid-zone collision", () => {
   it("blocks an avatar standing on a table", () => {
-    expect(hitsTable(layoutOf(table("t1")), { x: 400, y: 425 }, HALF)).toBe(true)
+    expect(hitsSolid(layoutOf(table("t1")), { x: 400, y: 425 }, HALF)).toBe(true)
   })
 
   it("blocks an avatar whose radius overlaps a table edge", () => {
-    expect(hitsTable(layoutOf(table("t1")), { x: 400, y: 385 }, HALF)).toBe(true)
+    expect(hitsSolid(layoutOf(table("t1")), { x: 400, y: 385 }, HALF)).toBe(true)
   })
 
   it("lets an avatar past once its radius clears the table", () => {
-    expect(hitsTable(layoutOf(table("t1")), { x: 400, y: 370 }, HALF)).toBe(false)
+    expect(hitsSolid(layoutOf(table("t1")), { x: 400, y: 370 }, HALF)).toBe(false)
   })
 
   it("treats walls as solid", () => {
     const wall: Zone = { id: "w", kind: "wall", rect: { x: 0.2, y: 0.4, w: 0.4, h: 0.05 } }
-    expect(hitsTable(layoutOf(wall), { x: 400, y: 425 }, HALF)).toBe(true)
+    expect(hitsSolid(layoutOf(wall), { x: 400, y: 425 }, HALF)).toBe(true)
   })
 
-  it("walks through rooms, toilets and the exterior, which are not solid", () => {
+  it("treats the exterior as solid: it is outside the Office's footprint", () => {
     const exterior: Zone = { id: "x", kind: "exterior", rect: { x: 0.2, y: 0.4, w: 0.4, h: 0.05 } }
-    expect(hitsTable(layoutOf(room("C")), { x: 400, y: 400 }, HALF)).toBe(false)
-    expect(hitsTable(layoutOf(toilet("T1")), { x: 50, y: 50 }, HALF)).toBe(false)
-    expect(hitsTable(layoutOf(exterior), { x: 400, y: 425 }, HALF)).toBe(false)
+    expect(hitsSolid(layoutOf(exterior), { x: 400, y: 425 }, HALF)).toBe(true)
+  })
+
+  it("walks through Rooms and the Spawn Zone, which are not solid", () => {
+    const spawn: Zone = { id: "s", kind: "spawn", rect: { x: 0.2, y: 0.4, w: 0.4, h: 0.05 } }
+    expect(hitsSolid(layoutOf(room("C")), { x: 400, y: 400 }, HALF)).toBe(false)
+    expect(hitsSolid(layoutOf(openRoom("T1")), { x: 50, y: 50 }, HALF)).toBe(false)
+    expect(hitsSolid(layoutOf(spawn), { x: 400, y: 425 }, HALF)).toBe(false)
   })
 
   it("blocks the default office's furniture and walls", () => {
-    expect(hitsTable(DEFAULT_LAYOUT, { x: 135, y: 620 }, HALF)).toBe(true) // table t4
-    expect(hitsTable(DEFAULT_LAYOUT, { x: 135, y: 568 }, HALF)).toBe(true) // wall beside room C
-    expect(hitsTable(DEFAULT_LAYOUT, { x: 675, y: 250 }, HALF)).toBe(true) // dining table D
-    expect(hitsTable(DEFAULT_LAYOUT, { x: 400, y: 1700 }, HALF)).toBe(false) // open floor
-    expect(hitsTable(DEFAULT_LAYOUT, { x: 675, y: 800 }, HALF)).toBe(false) // inside room C
+    expect(hitsSolid(DEFAULT_LAYOUT, { x: 135, y: 620 }, HALF)).toBe(true) // table t4
+    expect(hitsSolid(DEFAULT_LAYOUT, { x: 135, y: 568 }, HALF)).toBe(true) // wall beside room C
+    expect(hitsSolid(DEFAULT_LAYOUT, { x: 675, y: 250 }, HALF)).toBe(true) // dining-styled table D
+    expect(hitsSolid(DEFAULT_LAYOUT, { x: 400, y: 1700 }, HALF)).toBe(false) // open floor
+    expect(hitsSolid(DEFAULT_LAYOUT, { x: 675, y: 800 }, HALF)).toBe(false) // inside room C
   })
 })
 
@@ -132,6 +156,14 @@ describe("Seat derivation", () => {
     ])
   })
 
+  it("seats a dining-styled table exactly like a plain one", () => {
+    const plain = table("t1")
+    const dining: Zone = { ...table("t1"), style: "dining" }
+    expect(seatSlots(layoutOf(dining), dining, HALF)).toEqual(
+      seatSlots(layoutOf(plain), plain, HALF),
+    )
+  })
+
   it("puts every chair on the open edge when the other backs onto nothing walkable", () => {
     // Flush against the top of the floor, so a chair above it would sit off-map.
     const t: Zone = { id: "t1", kind: "table", rect: { x: 0.15, y: 0, w: 0.7, h: 0.05 } }
@@ -146,8 +178,10 @@ describe("Seat derivation", () => {
   })
 
   it("derives no chairs for zones that are not tables", () => {
+    const spawn: Zone = { id: "s", kind: "spawn", rect: { x: 0.2, y: 0.4, w: 0.4, h: 0.05 } }
     expect(seatSlots(layoutOf(room("C")), room("C"), HALF)).toEqual([])
-    expect(seatSlots(layoutOf(toilet("T1")), toilet("T1"), HALF)).toEqual([])
+    expect(seatSlots(layoutOf(openRoom("T1")), openRoom("T1"), HALF)).toEqual([])
+    expect(seatSlots(layoutOf(spawn), spawn, HALF)).toEqual([])
   })
 
   it("derives the default office's chairs", () => {
@@ -172,5 +206,42 @@ describe("Seat derivation", () => {
     expect(seatedTableAt(DEFAULT_LAYOUT, { x: 90, y: 708 }, HALF)).toBe("t4")
     expect(seatedTableAt(DEFAULT_LAYOUT, { x: 675, y: 1132 }, HALF)).toBe("t1")
     expect(seatedTableAt(DEFAULT_LAYOUT, { x: 400, y: 1200 }, HALF)).toBeNull()
+  })
+})
+
+describe("Spawn", () => {
+  const spawn: Zone = { id: "s", kind: "spawn", rect: { x: 0.2, y: 0.6, w: 0.4, h: 0.2 } }
+  const layout = layoutOf(spawn)
+  const ids = ["alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi"]
+
+  it("puts an arrival inside the Spawn Zone, avatar and all", () => {
+    for (const id of ids) {
+      const p = spawnPoint(layout, id, HALF)
+      expect(p.x).toBeGreaterThanOrEqual(200 + HALF)
+      expect(p.x).toBeLessThanOrEqual(600 - HALF)
+      expect(p.y).toBeGreaterThanOrEqual(600 + HALF)
+      expect(p.y).toBeLessThanOrEqual(800 - HALF)
+    }
+  })
+
+  it("is deterministic per user id, so every client agrees on where you appeared", () => {
+    expect(spawnPoint(layout, "alice", HALF)).toEqual(spawnPoint(layout, "alice", HALF))
+  })
+
+  it("scatters arrivals rather than stacking them on one point", () => {
+    const seen = new Set(ids.map((id) => JSON.stringify(spawnPoint(layout, id, HALF))))
+    expect(seen.size).toBeGreaterThan(1)
+  })
+
+  it("falls back to the middle of the Floor when an Office has no Spawn Zone", () => {
+    expect(spawnPoint(layoutOf(room("C")), "alice", HALF)).toEqual({ x: 500, y: 500 })
+  })
+
+  it("lands on walkable open Floor in the default office", () => {
+    for (const id of ids) {
+      const p = spawnPoint(DEFAULT_LAYOUT, id, HALF)
+      expect(hitsSolid(DEFAULT_LAYOUT, p, HALF)).toBe(false)
+      expect(roomAt(DEFAULT_LAYOUT, p)).toBeNull()
+    }
   })
 })

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Avatar } from "./Avatar"
 import { FloorLayout } from "./FloorLayout"
 import type { StreamVideoParticipant } from "@stream-io/video-react-sdk"
-import { roomAt, seatedTableAt, type Layout, type Zone } from "./layout"
+import { roomContextAt, seatedTableAt, type Layout, type Zone } from "./layout"
 import type { PeerState } from "./useRealtime"
 import { AVATAR_SIZE, INNER_RADIUS, OUTER_RADIUS, type Position } from "./types"
 
@@ -21,7 +21,7 @@ interface OfficeFloorProps {
   /** Interpolated peer positions (from the relay), keyed by user id. */
   positions: Record<string, PeerState>
   /** Room id the local avatar is currently inside, or null. */
-  currentRoom: string | null
+  insideRoom: string | null
   /** User ids of remote participants currently speaking. */
   speakingIds: Set<string>
   /** User ids of remote participants currently muted. */
@@ -54,7 +54,7 @@ export function OfficeFloor({
   layout,
   viewWidth,
   positions,
-  currentRoom,
+  insideRoom,
   speakingIds,
   mutedIds,
   participantsById,
@@ -99,7 +99,7 @@ export function OfficeFloor({
   // Video follows the same isolation as audio: you only see a peer's camera if you share
   // their room-context (same room, or both out in the open). People outside a private
   // room can't see the video of people inside it, and vice-versa.
-  const localRoom = roomAt(layout, localPos)
+  const localRoomContext = roomContextAt(layout, localPos)
 
   return (
     <div
@@ -122,7 +122,7 @@ export function OfficeFloor({
         >
           <FloorLayout
             layout={layout}
-            currentRoom={currentRoom}
+            insideRoom={insideRoom}
             occupied={Object.values(positions)}
             onEnter={onEnter}
             onSit={onSit}
@@ -159,10 +159,14 @@ export function OfficeFloor({
                 deafened={peer.deafened}
                 seated={!!seatedTableAt(layout, peer, AVATAR_SIZE / 2)}
                 participant={
-                  roomAt(layout, peer) === localRoom ? participantsById[userId] : undefined
+                  roomContextAt(layout, peer) === localRoomContext
+                    ? participantsById[userId]
+                    : undefined
                 }
                 // Bubble only shows for peers sharing your room-context, like their video.
-                bubble={roomAt(layout, peer) === localRoom ? bubbles[userId] : undefined}
+                bubble={
+                  roomContextAt(layout, peer) === localRoomContext ? bubbles[userId] : undefined
+                }
                 watchers={watchersById[userId] ?? 0}
                 isExpanded={expandedId === userId}
                 onExpand={(track) => onExpand(userId, track)}

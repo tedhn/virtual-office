@@ -1,4 +1,7 @@
-import type { Position, Size } from "./types"
+// Relative imports in this module carry an explicit `.ts` extension: the server loads it
+// straight from source with Node's type stripping, and Node ESM does no extension
+// resolution. See ADR-0004.
+import { hashId, type Position, type Size } from "./types.ts"
 
 /** A rectangle in normalized floor space (0..1), so the layout scales to any viewport. */
 export interface Rect {
@@ -8,10 +11,11 @@ export interface Rect {
   h: number
 }
 
-export type ZoneKind = "room" | "toilet" | "dining" | "table" | "wall" | "exterior"
-
-/** Zones that are private, click-to-enter spaces (rooms and toilets behave identically). */
-export const isRoomLike = (k: ZoneKind) => k === "room" || k === "toilet"
+/**
+ * The five kinds of Zone an Owner can place. Behaviour that used to be a kind of its own
+ * is a flag now: a toilet is a non-private `room`, a dining table is a styled `table`.
+ */
+export type ZoneKind = "room" | "table" | "wall" | "spawn" | "exterior"
 
 export interface Zone {
   id: string
@@ -19,7 +23,15 @@ export interface Zone {
   /** Shown for rooms and the dining table; plain tables are unlabeled. */
   label?: string
   rect: Rect
-  /** Max chairs for a table (default 6). */
+  /**
+   * Room only: a private Room isolates the audio, video and chat of everyone inside it
+   * from the rest of the Floor. A Room without this flag is enclosed but not private —
+   * its occupants stay part of the open Floor.
+   */
+  private?: boolean
+  /** Table only: cosmetic variant. Styling changes nothing about a Table's behaviour. */
+  style?: "plain" | "dining"
+  /** Table only: max chairs (default 6). */
   seats?: number
 }
 
@@ -47,13 +59,15 @@ export function rectToPx(rect: Rect, floor: Size) {
   }
 }
 
-function zoneMatch(
-  layout: Layout,
-  pos: Position,
-  pred: (k: ZoneKind) => boolean,
-): string | null {
+/**
+ * Whether a Zone is a private Room — the only kind that creates a Room-context, and so
+ * the single place privacy is decided from. A Room with no `private` flag is not private.
+ */
+export const isPrivateRoom = (zone: Zone) => zone.kind === "room" && zone.private === true
+
+function zoneMatch(layout: Layout, pos: Position, pred: (z: Zone) => boolean): string | null {
   for (const z of layout.zones) {
-    if (!pred(z.kind)) continue
+    if (!pred(z)) continue
     const r = rectToPx(z.rect, layout.floor)
     if (pos.x >= r.left && pos.x <= r.left + r.width && pos.y >= r.top && pos.y <= r.top + r.height) {
       return z.id
@@ -63,30 +77,33 @@ function zoneMatch(
 }
 
 /**
- * Private-room id (A/B/C in the default office) containing this point, or null for the
- * open floor. Drives audio/video/chat isolation. Toilets are deliberately excluded: you
- * can enter one, but it doesn't cut you off from the open floor. Use zoneAt for
- * movement/enter logic that treats toilets and rooms the same.
+ * Room-context of a point: the id of the private Room it stands inside, or null for the
+ * open Floor. Drives audio/video/chat isolation, on the client and on the server alike.
+ * Non-private Rooms are deliberately excluded: you can enter one, but it doesn't cut you
+ * off from the open Floor. Use roomAt for movement/enter logic, which treats every Room
+ * the same.
  */
-export function roomAt(layout: Layout, pos: Position): string | null {
-  return zoneMatch(layout, pos, (k) => k === "room")
+export function roomContextAt(layout: Layout, pos: Position): string | null {
+  return zoneMatch(layout, pos, isPrivateRoom)
 }
 
 /**
- * Id of the room-LIKE enclosure (room or toilet) containing this point, or null. Used
- * for wall-crossing collision and click-to-enter, which gate toilets exactly like rooms
- * even though toilets carry no audio/video/chat privacy.
+ * Id of the Room enclosing this point, private or not, else null. Used for wall-crossing
+ * collision and click-to-enter, which gate every Room alike even though a non-private one
+ * carries no audio/video/chat privacy.
  */
-export function zoneAt(layout: Layout, pos: Position): string | null {
-  return zoneMatch(layout, pos, isRoomLike)
+export function roomAt(layout: Layout, pos: Position): string | null {
+  return zoneMatch(layout, pos, (z) => z.kind === "room")
 }
 
-/** True if an avatar of radius `half` centered at `pos` overlaps a solid zone (tables + walls). */
-export function hitsTable(layout: Layout, pos: Position, half: number): boolean {
+/**
+ * True if an avatar of radius `half` centered at `pos` overlaps a solid zone. Tables,
+ * walls and the exterior are solid; Rooms use wall-crossing rules instead, and the Spawn
+ * Zone is ordinary walkable floor.
+ */
+export function hitsSolid(layout: Layout, pos: Position, half: number): boolean {
   for (const z of layout.zones) {
-    // Only tables, the dining table and walls are solid; rooms use wall-crossing rules
-    // and the exterior is a visual-only region (fenced by its walls).
-    if (isRoomLike(z.kind) || z.kind === "exterior") continue
+    if (z.kind === "room" || z.kind === "spawn") continue
     const r = rectToPx(z.rect, layout.floor)
     if (
       pos.x > r.left - half &&
@@ -98,6 +115,25 @@ export function hitsTable(layout: Layout, pos: Position, half: number): boolean 
     }
   }
   return false
+}
+
+/**
+ * Where a Visitor appears when they enter an Office: a point inside the Spawn Zone,
+ * inset so the whole avatar fits, scattered by user id so arrivals don't stack on one
+ * spot. Deterministic, so every client agrees on where a newcomer showed up. Falls back
+ * to the middle of the Floor for an Office with no Spawn Zone.
+ */
+export function spawnPoint(layout: Layout, userId: string, half: number): Position {
+  const zone = layout.zones.find((z) => z.kind === "spawn")
+  if (!zone) return { x: layout.floor.width / 2, y: layout.floor.height / 2 }
+  const r = rectToPx(zone.rect, layout.floor)
+  const insetX = Math.min(half, r.width / 2)
+  const insetY = Math.min(half, r.height / 2)
+  const h = hashId(userId)
+  return {
+    x: r.left + insetX + ((h % 1000) / 1000) * (r.width - insetX * 2),
+    y: r.top + insetY + (((h >>> 10) % 1000) / 1000) * (r.height - insetY * 2),
+  }
 }
 
 const EPS = 1e-6
@@ -183,8 +219,8 @@ function seatValid(layout: Layout, s: Position, half: number): boolean {
     s.x <= layout.floor.width - half &&
     s.y >= half &&
     s.y <= layout.floor.height - half &&
-    !zoneAt(layout, s) &&
-    !hitsTable(layout, s, half)
+    !roomAt(layout, s) &&
+    !hitsSolid(layout, s, half)
   )
 }
 
@@ -200,10 +236,10 @@ function edgeChairs(left: number, width: number, y: number, count: number): Posi
  * (default 6) split evenly between the top and bottom edges; if one edge is blocked
  * (off-floor or backing onto a wall) all chairs go on the open edge. Even rows, aligned
  * columns. Deterministic (pure function of the layout + the table's rect): every client
- * of the same office agrees.
+ * of the same office agrees. A table's styling has no say in this.
  */
 export function seatSlots(layout: Layout, zone: Zone, half: number): Position[] {
-  if (zone.kind !== "table" && zone.kind !== "dining") return []
+  if (zone.kind !== "table") return []
   const seats = zone.seats ?? DEFAULT_SEATS
   const r = rectToPx(zone.rect, layout.floor)
   const gap = half + 6
@@ -255,16 +291,16 @@ export function nearestFreeSeat(
 }
 
 /**
- * Nearest room-like zone (room/toilet) you're standing just OUTSIDE of, within `pad` px of
- * its walls — for the proximity Join prompt. Null if none, or if you're already inside a
- * zone (that case is Leave, driven by zoneAt).
+ * Nearest Room you're standing just OUTSIDE of, within `pad` px of its walls — for the
+ * proximity Join prompt. Null if none, or if you're already inside a Room (that case is
+ * Leave, driven by roomAt).
  */
-export function roomLikeNear(layout: Layout, pos: Position, pad: number): Zone | null {
-  if (zoneAt(layout, pos)) return null
+export function roomNear(layout: Layout, pos: Position, pad: number): Zone | null {
+  if (roomAt(layout, pos)) return null
   let best: Zone | null = null
   let bd = Infinity
   for (const z of layout.zones) {
-    if (!isRoomLike(z.kind)) continue
+    if (z.kind !== "room") continue
     const r = rectToPx(z.rect, layout.floor)
     if (
       pos.x < r.left - pad ||
@@ -299,7 +335,7 @@ export function freeSeatNear(
   let best: { zone: Zone; seat: Position } | null = null
   let bd = Infinity
   for (const z of layout.zones) {
-    // seatSlots returns [] for non-seat zones, so no explicit kind gate is needed here.
+    // seatSlots returns [] for non-table zones, so no explicit kind gate is needed here.
     for (const s of seatSlots(layout, z, half)) {
       const d = Math.hypot(pos.x - s.x, pos.y - s.y)
       if (d > pad || d >= bd) continue
@@ -314,7 +350,7 @@ export function freeSeatNear(
 /** Table id whose chair `pos` is sitting on (within the avatar radius), else null. */
 export function seatedTableAt(layout: Layout, pos: Position, half: number): string | null {
   for (const z of layout.zones) {
-    if (isRoomLike(z.kind)) continue
+    if (z.kind !== "table") continue
     for (const s of seatSlots(layout, z, half)) {
       if (Math.hypot(pos.x - s.x, pos.y - s.y) <= half) return z.id
     }

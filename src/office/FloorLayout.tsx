@@ -1,11 +1,11 @@
-import { rectToPx, seatSlots, type Layout, type Zone } from "./layout"
+import { isPrivateRoom, rectToPx, seatSlots, type Layout, type Zone } from "./layout"
 import { AVATAR_SIZE, type Position } from "./types"
 
 interface FloorLayoutProps {
   /** The office being drawn: floor dimensions plus every zone on it. */
   layout: Layout
-  /** Room id the local avatar is currently inside, or null. */
-  currentRoom: string | null
+  /** Id of the Room the local avatar is standing inside, private or not, else null. */
+  insideRoom: string | null
   /** Peer positions, used to mark which seats are taken. */
   occupied: Position[]
   /** Join/leave a clicked room. */
@@ -21,14 +21,16 @@ const SEAT_D = AVATAR_SIZE * 0.72 // seat-indicator diameter
 const HALF = AVATAR_SIZE / 2
 
 /**
- * Draws the office layout beneath the avatars: rooms (click to join/leave — private
- * audio zones), tables (non-interactive furniture) and the chairs around each table
- * (click a chair to walk over and sit; taken chairs are filled in). Walls are solid bars.
+ * Draws the office layout beneath the avatars: Rooms (click to join/leave; a private one
+ * isolates audio, video and chat), Tables (non-interactive furniture) and the chairs
+ * around each Table (click a free chair to walk over and sit; taken chairs are filled
+ * in). Walls and the Exterior are solid bars/regions. The Spawn Zone is ordinary open
+ * floor, so it draws nothing.
  *
- * A room edge on a perimeter wall drops its border and squares that corner so it merges
+ * A Room edge on a perimeter wall drops its border and squares that corner so it merges
  * into the wall as one line.
  */
-export function FloorLayout({ layout, currentRoom, occupied, onEnter, onSit }: FloorLayoutProps) {
+export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: FloorLayoutProps) {
   return (
     <div className="absolute inset-0 pointer-events-none">
       {layout.zones.map((zone) => {
@@ -45,9 +47,24 @@ export function FloorLayout({ layout, currentRoom, occupied, onEnter, onSit }: F
           )
         }
 
-        // Tables / dining: furniture only — you interact with the chairs, not the table.
-        if (zone.kind === "table" || zone.kind === "dining") {
-          const dining = zone.kind === "dining"
+        // Exterior: outside the office's footprint. Solid, visual only.
+        if (zone.kind === "exterior") {
+          return (
+            <div
+              key={zone.id}
+              className="absolute bg-black/[.07] pointer-events-none dark:bg-white/[.05]"
+              style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+            />
+          )
+        }
+
+        // Spawn: where arrivals appear, and nothing else. Plain walkable floor to look at.
+        if (zone.kind === "spawn") return null
+
+        // Tables: furniture only — you interact with the chairs, not the table. Styling
+        // is cosmetic; a dining table behaves exactly like a plain one.
+        if (zone.kind === "table") {
+          const dining = zone.style === "dining"
           return (
             <div
               key={zone.id}
@@ -68,20 +85,21 @@ export function FloorLayout({ layout, currentRoom, occupied, onEnter, onSit }: F
           )
         }
 
-        // Rooms (and toilets): click to join / leave.
+        // Rooms: click to join / leave. A non-private one is tinted differently, since
+        // walking in doesn't cut you off from the open Floor.
         const r = zone.rect
         const onL = r.x <= EPS
         const onR = r.x + r.w >= 1 - EPS
         const onT = r.y <= EPS
         const onB = r.y + r.h >= 1 - EPS
-        const toilet = zone.kind === "toilet"
+        const nonPrivate = !isPrivateRoom(zone)
         return (
           <div
             key={zone.id}
             onClick={() => onEnter(zone)}
             className={[
               "group absolute flex items-center justify-center cursor-pointer pointer-events-auto",
-              toilet
+              nonPrivate
                 ? "border-cyan-700/40 bg-cyan-500/[.10] hover:bg-cyan-500/[.18] dark:border-cyan-300/30 dark:bg-cyan-400/[.10] dark:hover:bg-cyan-400/[.18]"
                 : "border-black/30 bg-black/[.04] hover:bg-black/[.08] dark:border-white/25 dark:bg-white/[.04] dark:hover:bg-white/[.08]",
             ].join(" ")}
@@ -107,7 +125,7 @@ export function FloorLayout({ layout, currentRoom, occupied, onEnter, onSit }: F
               </span>
             )}
             <span className="pointer-events-none absolute rounded-full bg-black/75 px-3 py-1 text-sm font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 dark:bg-white/90 dark:text-black">
-              {currentRoom === zone.id ? `Leave ${zone.label}` : `Join ${zone.label}`}
+              {insideRoom === zone.id ? `Leave ${zone.label}` : `Join ${zone.label}`}
             </span>
           </div>
         )
@@ -115,7 +133,7 @@ export function FloorLayout({ layout, currentRoom, occupied, onEnter, onSit }: F
 
       {/* Chairs: click a free one to sit; taken ones are filled. */}
       {layout.zones
-        .filter((z) => z.kind === "table" || z.kind === "dining")
+        .filter((z) => z.kind === "table")
         .flatMap((z) =>
           seatSlots(layout, z, HALF).map((s, i) => {
             const taken = occupied.some((o) => Math.hypot(o.x - s.x, o.y - s.y) < HALF * 1.5)

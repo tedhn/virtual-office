@@ -33,10 +33,14 @@ export function distance(a: Position, b: Position): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-/** Deterministic pleasant color from a user id (HSL hue). */
-export function colorForId(id: string): string {
+/** Stable hash of a user id, for deriving per-user values without a random source. */
+export function hashId(id: string): number {
   let hash = 0
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0
-  const hue = Math.abs(hash) % 360
-  return `hsl(${hue} 65% 55%)`
+  return Math.abs(hash)
+}
+
+/** Deterministic pleasant color from a user id (HSL hue). */
+export function colorForId(id: string): string {
+  return `hsl(${hashId(id) % 360} 65% 55%)`
 }

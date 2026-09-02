@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { hitsTable, zoneAt, type Layout } from "./layout"
+import { hitsSolid, roomAt, type Layout } from "./layout"
 import {
   AVATAR_SIZE,
   MOVE_SPEED,
@@ -18,19 +18,19 @@ function clamp(pos: Position, floor: Size): Position {
   }
 }
 
-// Per-axis collision so movement slides along edges instead of sticking. Tables are
-// solid (skip when already inside one so you can walk back out); room walls block
-// crossing a room boundary (rooms change only via Join/Leave teleport).
+// Per-axis collision so movement slides along edges instead of sticking. Solid zones
+// block (skip when already inside one so you can walk back out); Room walls block
+// crossing a Room boundary (Rooms change only via Join/Leave teleport).
 function resolveMove(cur: Position, nx: number, ny: number, layout: Layout): Position {
-  if (!hitsTable(layout, cur, HALF)) {
-    if (hitsTable(layout, { x: nx, y: cur.y }, HALF)) nx = cur.x
-    if (hitsTable(layout, { x: nx, y: ny }, HALF)) ny = cur.y
+  if (!hitsSolid(layout, cur, HALF)) {
+    if (hitsSolid(layout, { x: nx, y: cur.y }, HALF)) nx = cur.x
+    if (hitsSolid(layout, { x: nx, y: ny }, HALF)) ny = cur.y
   }
-  // Room-like enclosures (rooms AND toilets) block wall-crossing, so entering/leaving
-  // stays teleport-only via click — even though toilets aren't private.
-  const zone0 = zoneAt(layout, cur)
-  if (zoneAt(layout, { x: nx, y: cur.y }) !== zone0) nx = cur.x
-  if (zoneAt(layout, { x: nx, y: ny }) !== zone0) ny = cur.y
+  // Every Room blocks wall-crossing, so entering and leaving stays teleport-only via
+  // click — a non-private Room included, even though it carries no isolation.
+  const room0 = roomAt(layout, cur)
+  if (roomAt(layout, { x: nx, y: cur.y }) !== room0) nx = cur.x
+  if (roomAt(layout, { x: nx, y: ny }) !== room0) ny = cur.y
   return clamp({ x: nx, y: ny }, layout.floor)
 }
 

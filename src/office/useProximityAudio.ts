@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { useCallStateHooks } from "@stream-io/video-react-sdk"
-import { roomAt, seatedTableAt, type Layout } from "./layout"
+import { roomContextAt, seatedTableAt, type Layout } from "./layout"
 import type { PeerState } from "./useRealtime"
 import { AVATAR_SIZE, distance, proximityVolume, type Position } from "./types"
 
@@ -51,7 +51,7 @@ export function useProximityAudio(
 
   useEffect(() => {
     const liveSessionIds = new Set<string>()
-    const localRoom = roomAt(layout, localPos)
+    const localRoom = roomContextAt(layout, localPos)
 
     for (const p of participants) {
       if (p.isLocalParticipant) continue
@@ -70,7 +70,7 @@ export function useProximityAudio(
         // already gated to your room-context, so this can't cross a room boundary.
         vol = 1
       } else if (remotePos) {
-        const remoteRoom = roomAt(layout, remotePos)
+        const remoteRoom = roomContextAt(layout, remotePos)
         if (remoteRoom !== localRoom) {
           // Different room-context: rooms seal both ways — inside one you hear only that room,
           // outside you can't hear anyone shut in one.

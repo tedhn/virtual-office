@@ -20,13 +20,20 @@ avatar toward the other (WASD / arrow keys) to hear the proximity audio.
 
 - `server/index.mjs` — Express token server (:3001). Mints Stream JWTs; the API secret
   never reaches the browser.
+- `server/relay.mjs` — the WebSocket fan-out for positions and chat, and the one place
+  chat isolation is enforced: a message reaches only sockets whose reported position
+  shares the sender's room-context. It computes that from `src/office/layout.ts`, loaded
+  straight from TypeScript source (see ADR-0004), so privacy has a single implementation.
+  `relay.test.mjs` drives a real socket server and covers the isolation rules.
 - `src/office/` — the world: `useMovement` (keyboard + broadcast via
   `call.sendCustomEvent`), `usePositions` (`call.on('custom')` → remote positions),
   `useProximityAudio` (distance → `speaker.setParticipantVolume`), and the floor / avatars.
-- `src/office/layout.ts` — the geometry: room-context resolution, seat derivation and
-  collision. Every function takes the `Layout` (floor dimensions + zones) it operates on,
-  so an office's floorplan is data rather than code. `defaultLayout.ts` holds the one this
-  app currently ships; `layout.test.ts` covers the geometry.
+- `src/office/layout.ts` — the geometry: room-context resolution, spawn scatter, seat
+  derivation and collision. Every function takes the `Layout` (floor dimensions + zones)
+  it operates on, so an office's floorplan is data rather than code. A zone is one of five
+  kinds — room, table, wall, spawn, exterior — with privacy and table styling as flags on
+  the zone. `defaultLayout.ts` holds the floorplan this app currently ships;
+  `layout.test.ts` covers the geometry.
 - Everyone joins one call (`default:office-main`), mic on / camera off.
 
 ---
