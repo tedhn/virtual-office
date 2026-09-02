@@ -14,8 +14,9 @@ Built on the **GetStream Video SDK**.
 4. `npm run dev` — starts the Vite app **and** the token server together.
 
 For identity and offices, point the app at a Supabase project (see **Identity and
-offices** below): its URL and anon key go in `.env`, and `npm run db:push` applies
-`supabase/migrations` to it.
+offices** below): `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` go in `.env`
+(the `VITE_` prefix is what reaches the browser — a `NEXT_PUBLIC_…` key pasted from the
+dashboard does not), and `npm run db:push` applies `supabase/migrations` to it.
 
 Open two browser windows, join with different names, allow mic access, and walk one
 avatar toward the other (WASD / arrow keys) to hear the proximity audio.

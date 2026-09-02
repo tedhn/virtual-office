@@ -1,7 +1,7 @@
-import "dotenv/config"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { ensureAnonymousSession, isAnonymous } from "@/auth/session"
+import { configured, missingConfigWarning, publishableKey, secretKey, supabaseUrl } from "./testEnv"
 
 /**
  * The Visitor half of ADR-0003, against a real Supabase: an identity appears without
@@ -11,16 +11,7 @@ import { ensureAnonymousSession, isAnonymous } from "@/auth/session"
  * session the first one stored — because that is the whole mechanism: the storage
  * outlives the page, and `ensureAnonymousSession` signs in only when it finds nothing.
  */
-const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
-const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-const configured = Boolean(url && anonKey && serviceRoleKey)
-
-if (!configured) {
-  console.warn(
-    "[anonymousVisitor] skipped: set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in .env",
-  )
-}
+if (!configured) console.warn(`[anonymousVisitor] skipped: ${missingConfigWarning}`)
 
 /** Stands in for the browser storage a session survives a page load in. */
 function browserStorage() {
@@ -38,12 +29,12 @@ describe.skipIf(!configured)("an anonymous Visitor", () => {
 
   /** A fresh page load sharing `storage` with any earlier one. */
   const pageLoad = (storage: ReturnType<typeof browserStorage>) =>
-    createClient(url!, anonKey!, {
+    createClient(supabaseUrl!, publishableKey!, {
       auth: { persistSession: true, autoRefreshToken: false, storage },
     })
 
   beforeAll(() => {
-    admin = createClient(url!, serviceRoleKey!, { auth: { persistSession: false } })
+    admin = createClient(supabaseUrl!, secretKey!, { auth: { persistSession: false } })
   })
 
   afterAll(async () => {

@@ -1,10 +1,10 @@
-import "dotenv/config"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createOffice, publishDraft, type Office } from "@/lib/offices"
 import { readPublishedOffice, supabaseOfficeRows } from "@/lib/officeRows"
 import { DEFAULT_LAYOUT } from "@/office/defaultLayout"
 import type { Layout } from "@/office/layout"
+import { configured, missingConfigWarning, publishableKey, secretKey, supabaseUrl } from "./testEnv"
 
 /**
  * Row-level security, proven against a real Supabase rather than argued about.
@@ -17,21 +17,12 @@ import type { Layout } from "@/office/layout"
  * a local stack, or a linked project — via .env. They skip when none is configured, so
  * `npm test` still runs on a machine with no database.
  */
-const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
-const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-const configured = Boolean(url && anonKey && serviceRoleKey)
-
-if (!configured) {
-  console.warn(
-    "[offices.rls] skipped: set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in .env to run the row-level security suite",
-  )
-}
+if (!configured) console.warn(`[offices.rls] skipped: ${missingConfigWarning}`)
 
 /** A slug is permanent and unique, so every run needs its own. */
 const uniqueSlug = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`
 
-const asAnon = () => createClient(url!, anonKey!, { auth: { persistSession: false } })
+const asAnon = () => createClient(supabaseUrl!, publishableKey!, { auth: { persistSession: false } })
 
 describe.skipIf(!configured)("offices row-level security", () => {
   let admin: SupabaseClient
@@ -66,7 +57,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
   }
 
   beforeAll(async () => {
-    admin = createClient(url!, serviceRoleKey!, { auth: { persistSession: false } })
+    admin = createClient(supabaseUrl!, secretKey!, { auth: { persistSession: false } })
     const first = await account()
     owner = first.client
     ownerId = first.id

@@ -1,10 +1,10 @@
-import "dotenv/config"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { sendMagicLink } from "@/auth/session"
 import { createOffice } from "@/lib/offices"
 import { supabaseOfficeRows } from "@/lib/officeRows"
 import { DEFAULT_LAYOUT } from "@/office/defaultLayout"
+import { configured, missingConfigWarning, publishableKey, secretKey, supabaseUrl } from "./testEnv"
 
 /**
  * Magic-link sign-in end to end: the app asks for a link, and the credential in that
@@ -20,17 +20,8 @@ import { DEFAULT_LAYOUT } from "@/office/defaultLayout"
  * hour on the free tier). The request to send is still made, because that is the call
  * the app makes; being turned away by the rate limiter is not a failure of this suite.
  */
-const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
-const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 const inbox = process.env.SUPABASE_INBUCKET_URL ?? "http://127.0.0.1:54324"
-const configured = Boolean(url && anonKey && serviceRoleKey)
-
-if (!configured) {
-  console.warn(
-    "[magicLink] skipped: set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in .env",
-  )
-}
+if (!configured) console.warn(`[magicLink] skipped: ${missingConfigWarning}`)
 
 /** Whether a mail catcher is answering, i.e. whether the delivered email is readable. */
 async function mailCatcherAnswers(): Promise<boolean> {
@@ -87,8 +78,8 @@ describe.skipIf(!configured)("magic-link sign-in", () => {
   let userId: string | null = null
 
   beforeAll(() => {
-    admin = createClient(url!, serviceRoleKey!, { auth: { persistSession: false } })
-    signingIn = createClient(url!, anonKey!, { auth: { persistSession: false } })
+    admin = createClient(supabaseUrl!, secretKey!, { auth: { persistSession: false } })
+    signingIn = createClient(supabaseUrl!, publishableKey!, { auth: { persistSession: false } })
   })
 
   afterAll(async () => {
