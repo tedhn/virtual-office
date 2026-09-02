@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { hitsTable, zoneAt } from "./layout"
+import { hitsTable, zoneAt, type Layout } from "./layout"
 import {
   AVATAR_SIZE,
   MOVE_SPEED,
@@ -21,17 +21,17 @@ function clamp(pos: Position, floor: Size): Position {
 // Per-axis collision so movement slides along edges instead of sticking. Tables are
 // solid (skip when already inside one so you can walk back out); room walls block
 // crossing a room boundary (rooms change only via Join/Leave teleport).
-function resolveMove(cur: Position, nx: number, ny: number, f: Size): Position {
-  if (!hitsTable(cur, f, HALF)) {
-    if (hitsTable({ x: nx, y: cur.y }, f, HALF)) nx = cur.x
-    if (hitsTable({ x: nx, y: ny }, f, HALF)) ny = cur.y
+function resolveMove(cur: Position, nx: number, ny: number, layout: Layout): Position {
+  if (!hitsTable(layout, cur, HALF)) {
+    if (hitsTable(layout, { x: nx, y: cur.y }, HALF)) nx = cur.x
+    if (hitsTable(layout, { x: nx, y: ny }, HALF)) ny = cur.y
   }
   // Room-like enclosures (rooms AND toilets) block wall-crossing, so entering/leaving
   // stays teleport-only via click — even though toilets aren't private.
-  const zone0 = zoneAt(cur, f)
-  if (zoneAt({ x: nx, y: cur.y }, f) !== zone0) nx = cur.x
-  if (zoneAt({ x: nx, y: ny }, f) !== zone0) ny = cur.y
-  return clamp({ x: nx, y: ny }, f)
+  const zone0 = zoneAt(layout, cur)
+  if (zoneAt(layout, { x: nx, y: cur.y }) !== zone0) nx = cur.x
+  if (zoneAt(layout, { x: nx, y: ny }) !== zone0) ny = cur.y
+  return clamp({ x: nx, y: ny }, layout.floor)
 }
 
 const HELD_KEYS: Record<string, [number, number]> = {
@@ -67,9 +67,9 @@ export interface Movement {
 export function useMovement(
   send: (x: number, y: number) => void,
   initial: Position,
-  floor: Size,
+  layout: Layout,
 ): Movement {
-  const [pos, setPos] = useState<Position>(() => clamp(initial, floor))
+  const [pos, setPos] = useState<Position>(() => clamp(initial, layout.floor))
   const posRef = useRef<Position>(pos)
   const keys = useRef<Set<string>>(new Set())
   const pointer = useRef<Position>({ x: 0, y: 0 }) // joystick vector, added to key input
@@ -79,18 +79,18 @@ export function useMovement(
   const wasMoving = useRef(false)
   const sendRef = useRef(send)
   sendRef.current = send
-  const floorRef = useRef(floor)
-  floorRef.current = floor
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
 
   // On viewport shrink, pull the avatar back inside the new bounds and tell peers.
   useEffect(() => {
-    const clamped = clamp(posRef.current, floor)
+    const clamped = clamp(posRef.current, layout.floor)
     if (clamped.x !== posRef.current.x || clamped.y !== posRef.current.y) {
       posRef.current = clamped
       setPos(clamped)
       sendRef.current(clamped.x, clamped.y)
     }
-  }, [floor])
+  }, [layout])
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -116,7 +116,7 @@ export function useMovement(
       const prev = lastFrame.current ?? t
       lastFrame.current = t
       const dt = Math.min((t - prev) / 1000, 0.05)
-      const f = floorRef.current
+      const l = layoutRef.current
       const cur = posRef.current
 
       let dx = 0
@@ -136,7 +136,7 @@ export function useMovement(
 
       if (manual) {
         const len = Math.hypot(dx, dy) || 1
-        const next = resolveMove(cur, cur.x + (dx / len) * MOVE_SPEED * dt, cur.y + (dy / len) * MOVE_SPEED * dt, f)
+        const next = resolveMove(cur, cur.x + (dx / len) * MOVE_SPEED * dt, cur.y + (dy / len) * MOVE_SPEED * dt, l)
         posRef.current = next
         setPos(next)
         moved = true
@@ -158,7 +158,7 @@ export function useMovement(
           sendRef.current(tgt.x, tgt.y)
         } else {
           const step = Math.min(d, MOVE_SPEED * dt)
-          const next = resolveMove(cur, cur.x + (ddx / d) * step, cur.y + (ddy / d) * step, f)
+          const next = resolveMove(cur, cur.x + (ddx / d) * step, cur.y + (ddy / d) * step, l)
           if (Math.hypot(next.x - cur.x, next.y - cur.y) < 0.5) {
             // Blocked by an obstacle we can't slide past (e.g. the seat's own table, or a
             // wall corner). Snap straight to the destination so the trip always completes.
@@ -198,7 +198,7 @@ export function useMovement(
 
   const teleport = useCallback((to: Position) => {
     target.current = null
-    const next = clamp(to, floorRef.current)
+    const next = clamp(to, layoutRef.current.floor)
     posRef.current = next
     setPos(next)
     lastSend.current = 0 // force the next tick to broadcast the new spot
@@ -206,7 +206,7 @@ export function useMovement(
   }, [])
 
   const walkTo = useCallback((to: Position) => {
-    target.current = clamp(to, floorRef.current)
+    target.current = clamp(to, layoutRef.current.floor)
   }, [])
 
   // On-screen joystick feeds a vector into the same rAF loop the keyboard uses, so collision,

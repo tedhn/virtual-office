@@ -88,7 +88,7 @@ const rooms = new Map()
 
 // Room-context isolation for chat, enforced here so a room's messages never leave the
 // server to anyone outside it (positions already stream to everyone; chat text must not
-// leak the same way). Mirrors the room rects + floor size from src/office/{layout,types}.ts
+// leak the same way). Mirrors the room rects + floor size from src/office/defaultLayout.ts
 // — keep in sync if those change. Only rooms (A/B/C) are private; the open floor is null.
 const FLOOR_W = 900
 const FLOOR_H = 2000

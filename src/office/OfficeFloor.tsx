@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Avatar } from "./Avatar"
 import { FloorLayout } from "./FloorLayout"
 import type { StreamVideoParticipant } from "@stream-io/video-react-sdk"
-import { roomAt, seatedTableAt, type Zone } from "./layout"
+import { roomAt, seatedTableAt, type Layout, type Zone } from "./layout"
 import type { PeerState } from "./useRealtime"
-import { AVATAR_SIZE, INNER_RADIUS, OUTER_RADIUS, type Position, type Size } from "./types"
+import { AVATAR_SIZE, INNER_RADIUS, OUTER_RADIUS, type Position } from "./types"
 
 interface OfficeFloorProps {
   localUserId: string
@@ -14,9 +14,9 @@ interface OfficeFloorProps {
   localMuted: boolean
   localDeafened: boolean
   localSeated: boolean
-  /** Fixed office floor size in px (same for every client). */
-  floor: Size
-  /** World-px width to fit across the viewport (zoom). Defaults to floor.width (width-fit). */
+  /** The office being rendered: fixed floor size in px (same for every client) plus its zones. */
+  layout: Layout
+  /** World-px width to fit across the viewport (zoom). Defaults to the floor width (width-fit). */
   viewWidth?: number
   /** Interpolated peer positions (from the relay), keyed by user id. */
   positions: Record<string, PeerState>
@@ -51,7 +51,7 @@ export function OfficeFloor({
   localMuted,
   localDeafened,
   localSeated,
-  floor,
+  layout,
   viewWidth,
   positions,
   currentRoom,
@@ -67,6 +67,7 @@ export function OfficeFloor({
 }: OfficeFloorProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
+  const floor = layout.floor
 
   // Scale the office so `viewWidth` world-px fit across the viewport (defaults to the full
   // floor width = width-fit; a smaller value zooms in). Logic (positions, rooms, collision,
@@ -98,7 +99,7 @@ export function OfficeFloor({
   // Video follows the same isolation as audio: you only see a peer's camera if you share
   // their room-context (same room, or both out in the open). People outside a private
   // room can't see the video of people inside it, and vice-versa.
-  const localRoom = roomAt(localPos, floor)
+  const localRoom = roomAt(layout, localPos)
 
   return (
     <div
@@ -120,7 +121,7 @@ export function OfficeFloor({
           }}
         >
           <FloorLayout
-            floor={floor}
+            layout={layout}
             currentRoom={currentRoom}
             occupied={Object.values(positions)}
             onEnter={onEnter}
@@ -156,12 +157,12 @@ export function OfficeFloor({
                 speaking={speakingIds.has(userId)}
                 muted={mutedIds.has(userId)}
                 deafened={peer.deafened}
-                seated={!!seatedTableAt(peer, floor, AVATAR_SIZE / 2)}
+                seated={!!seatedTableAt(layout, peer, AVATAR_SIZE / 2)}
                 participant={
-                  roomAt(peer, floor) === localRoom ? participantsById[userId] : undefined
+                  roomAt(layout, peer) === localRoom ? participantsById[userId] : undefined
                 }
                 // Bubble only shows for peers sharing your room-context, like their video.
-                bubble={roomAt(peer, floor) === localRoom ? bubbles[userId] : undefined}
+                bubble={roomAt(layout, peer) === localRoom ? bubbles[userId] : undefined}
                 watchers={watchersById[userId] ?? 0}
                 isExpanded={expandedId === userId}
                 onExpand={(track) => onExpand(userId, track)}

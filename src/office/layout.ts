@@ -24,31 +24,18 @@ export interface Zone {
 }
 
 /**
- * Office layout. Coordinates are normalized (0..1) — multiply by the floor size to
- * get pixels (see rectToPx). Footprint is an L: the main office is the tall block to
- * the right of x≈0.34; the toilet wing (F male, E female) juts out top-left, OUTSIDE
- * the main office; the bottom-left is exterior (empty, non-walkable).
+ * The complete authored description of an office: its floor dimensions plus every zone
+ * on it. Zone rects are normalized (0..1) against `floor`, so the two travel together —
+ * a rect means nothing without the floor it is measured against.
  *
- * Open-plan interior: only rooms (G, C, A, B) and the toilets have walls; the rest is
- * open floor with the dining table D up top and three work tables down the right.
+ * Every function below takes the Layout it operates on. Nothing here reads a floorplan
+ * from module scope, so an office's geometry is data, not code: see `defaultLayout.ts`
+ * for the one this app currently ships.
  */
-export const LAYOUT: Zone[] = [
-  { id: "wall-beside-c-top", kind: "wall", rect: { x: 0.0, y: 0.28, w: 0.3, h: 0.008 } },
-  { id: "wall-beside-c-bottom", kind: "wall", rect: { x: 0.0, y: 0.512, w: 0.3, h: 0.008 } },
-  { id: "t4", kind: "table", seats: 2, rect: { x: 0.0, y: 0.29, w: 0.3, h: 0.05 } },
-  { id: "T1", kind: "toilet", label: "MT", rect: { x: 0.0, y: 0.0, w: 0.155, h: 0.07 } },
-  { id: "T2", kind: "toilet", label: "FT", rect: { x: 0.0, y: 0.11, w: 0.263, h: 0.06 } },
-  { id: "wall-toilet-right", kind: "wall", rect: { x: 0.267, y: 0.03, w: 0.018, h: 0.142 } },
-  { id: "wall-male-right", kind: "wall", rect: { x: 0.160, y: 0.0, w: 0.018, h: 0.07 } },
-  { id: "wall-toilet-bottom", kind: "wall", rect: { x: 0.0, y: 0.172, w: 0.286, h: 0.008 } },
-  { id: "D", kind: "dining", label: "D", rect: { x: 0.56, y: 0.07, w: 0.3, h: 0.11 } },
-  { id: "C", kind: "room", label: "C", rect: { x: 0.5, y: 0.28, w: 0.5, h: 0.24 } },
-  { id: "t1", kind: "table", rect: { x: 0.5, y: 0.58, w: 0.5, h: 0.05 } },
-  { id: "t2", kind: "table", rect: { x: 0.5, y: 0.68, w: 0.5, h: 0.05 } },
-  { id: "t3", kind: "table", rect: { x: 0.5, y: 0.78, w: 0.5, h: 0.05 } },
-  { id: "A", kind: "room", label: "A", rect: { x: 0.0, y: 0.88, w: 0.5, h: 0.12 } },
-  { id: "B", kind: "room", label: "B", rect: { x: 0.5, y: 0.88, w: 0.5, h: 0.12 } },
-]
+export interface Layout {
+  floor: Size
+  zones: Zone[]
+}
 
 /** Normalized rect → absolute pixels for the given floor size. */
 export function rectToPx(rect: Rect, floor: Size) {
@@ -61,13 +48,13 @@ export function rectToPx(rect: Rect, floor: Size) {
 }
 
 function zoneMatch(
+  layout: Layout,
   pos: Position,
-  floor: Size,
   pred: (k: ZoneKind) => boolean,
 ): string | null {
-  for (const z of LAYOUT) {
+  for (const z of layout.zones) {
     if (!pred(z.kind)) continue
-    const r = rectToPx(z.rect, floor)
+    const r = rectToPx(z.rect, layout.floor)
     if (pos.x >= r.left && pos.x <= r.left + r.width && pos.y >= r.top && pos.y <= r.top + r.height) {
       return z.id
     }
@@ -76,13 +63,13 @@ function zoneMatch(
 }
 
 /**
- * Private-room id (A/B/C) containing this point, or null. Drives audio/video/chat
- * isolation. Toilets are deliberately excluded: you can enter one, but it doesn't cut
- * you off from the open floor. Use zoneAt for movement/enter logic that treats toilets
- * and rooms the same.
+ * Private-room id (A/B/C in the default office) containing this point, or null for the
+ * open floor. Drives audio/video/chat isolation. Toilets are deliberately excluded: you
+ * can enter one, but it doesn't cut you off from the open floor. Use zoneAt for
+ * movement/enter logic that treats toilets and rooms the same.
  */
-export function roomAt(pos: Position, floor: Size): string | null {
-  return zoneMatch(pos, floor, (k) => k === "room")
+export function roomAt(layout: Layout, pos: Position): string | null {
+  return zoneMatch(layout, pos, (k) => k === "room")
 }
 
 /**
@@ -90,17 +77,17 @@ export function roomAt(pos: Position, floor: Size): string | null {
  * for wall-crossing collision and click-to-enter, which gate toilets exactly like rooms
  * even though toilets carry no audio/video/chat privacy.
  */
-export function zoneAt(pos: Position, floor: Size): string | null {
-  return zoneMatch(pos, floor, isRoomLike)
+export function zoneAt(layout: Layout, pos: Position): string | null {
+  return zoneMatch(layout, pos, isRoomLike)
 }
 
 /** True if an avatar of radius `half` centered at `pos` overlaps a solid zone (tables + walls). */
-export function hitsTable(pos: Position, floor: Size, half: number): boolean {
-  for (const z of LAYOUT) {
+export function hitsTable(layout: Layout, pos: Position, half: number): boolean {
+  for (const z of layout.zones) {
     // Only tables, the dining table and walls are solid; rooms use wall-crossing rules
     // and the exterior is a visual-only region (fenced by its walls).
     if (isRoomLike(z.kind) || z.kind === "exterior") continue
-    const r = rectToPx(z.rect, floor)
+    const r = rectToPx(z.rect, layout.floor)
     if (
       pos.x > r.left - half &&
       pos.x < r.left + r.width + half &&
@@ -119,8 +106,8 @@ const EPS = 1e-6
  * Spot to stand when joining a room: `from` clamped into the room interior (inset by
  * the avatar radius), i.e. the nearest point fully inside the room's walls.
  */
-export function joinSpot(zone: Zone, floor: Size, from: Position, half: number): Position {
-  const r = rectToPx(zone.rect, floor)
+export function joinSpot(layout: Layout, zone: Zone, from: Position, half: number): Position {
+  const r = rectToPx(zone.rect, layout.floor)
   return {
     x: Math.max(r.left + half, Math.min(r.left + r.width - half, from.x)),
     y: Math.max(r.top + half, Math.min(r.top + r.height - half, from.y)),
@@ -131,7 +118,8 @@ export function joinSpot(zone: Zone, floor: Size, from: Position, half: number):
  * Spot to stand when leaving a room: just outside its nearest *interior* wall (a wall
  * not shared with the floor perimeter, so you land on the open floor, never off-map).
  */
-export function exitSpot(zone: Zone, floor: Size, from: Position, half: number): Position {
+export function exitSpot(layout: Layout, zone: Zone, from: Position, half: number): Position {
+  const floor = layout.floor
   const r = rectToPx(zone.rect, floor)
   const gap = half + 6
   const spanX = (x: number) => Math.max(r.left, Math.min(r.left + r.width, x))
@@ -158,8 +146,8 @@ export function exitSpot(zone: Zone, floor: Size, from: Position, half: number):
  * Seat position for a table: the point on the table's perimeter (offset out by the
  * avatar radius) nearest to `from`, so you sit against the side you approached from.
  */
-export function seatFor(zone: Zone, floor: Size, from: Position, half: number): Position {
-  const r = rectToPx(zone.rect, floor)
+export function seatFor(layout: Layout, zone: Zone, from: Position, half: number): Position {
+  const r = rectToPx(zone.rect, layout.floor)
   const gap = half + 6
   const minX = r.left - gap
   const maxX = r.left + r.width + gap
@@ -189,14 +177,14 @@ export function isSeatTaken(seat: Position, occupied: Position[], half: number):
   return occupied.some((o) => Math.hypot(o.x - seat.x, o.y - seat.y) < half * SEAT_TAKEN_RADIUS)
 }
 
-function seatValid(s: Position, floor: Size, half: number): boolean {
+function seatValid(layout: Layout, s: Position, half: number): boolean {
   return (
     s.x >= half &&
-    s.x <= floor.width - half &&
+    s.x <= layout.floor.width - half &&
     s.y >= half &&
-    s.y <= floor.height - half &&
-    !zoneAt(s, floor) &&
-    !hitsTable(s, floor, half)
+    s.y <= layout.floor.height - half &&
+    !zoneAt(layout, s) &&
+    !hitsTable(layout, s, half)
   )
 }
 
@@ -211,18 +199,19 @@ function edgeChairs(left: number, width: number, y: number, count: number): Posi
  * Chair anchors around a table (offset out by the avatar radius). `zone.seats` chairs
  * (default 6) split evenly between the top and bottom edges; if one edge is blocked
  * (off-floor or backing onto a wall) all chairs go on the open edge. Even rows, aligned
- * columns. Deterministic (pure function of the rect + floor): every client agrees.
+ * columns. Deterministic (pure function of the layout + the table's rect): every client
+ * of the same office agrees.
  */
-export function seatSlots(zone: Zone, floor: Size, half: number): Position[] {
+export function seatSlots(layout: Layout, zone: Zone, half: number): Position[] {
   if (zone.kind !== "table" && zone.kind !== "dining") return []
   const seats = zone.seats ?? DEFAULT_SEATS
-  const r = rectToPx(zone.rect, floor)
+  const r = rectToPx(zone.rect, layout.floor)
   const gap = half + 6
   const topY = r.top - gap
   const botY = r.top + r.height + gap
   // An edge is usable if a chair centered on it would be valid.
-  const topOk = seatValid({ x: r.left + r.width / 2, y: topY }, floor, half)
-  const botOk = seatValid({ x: r.left + r.width / 2, y: botY }, floor, half)
+  const topOk = seatValid(layout, { x: r.left + r.width / 2, y: topY }, half)
+  const botOk = seatValid(layout, { x: r.left + r.width / 2, y: botY }, half)
 
   let topN = 0
   let botN = 0
@@ -236,22 +225,22 @@ export function seatSlots(zone: Zone, floor: Size, half: number): Position[] {
   }
 
   return [...edgeChairs(r.left, r.width, topY, topN), ...edgeChairs(r.left, r.width, botY, botN)].filter(
-    (s) => seatValid(s, floor, half),
+    (s) => seatValid(layout, s, half),
   )
 }
 
 /**
- * Nearest FREE chair to `from` (a table seats at most SEATS_PER_EDGE*2 = 6). Returns
+ * Nearest FREE chair to `from` (a table seats at most `zone.seats`, default 6). Returns
  * null when every chair is taken, so a full table refuses new sitters.
  */
 export function nearestFreeSeat(
+  layout: Layout,
   zone: Zone,
-  floor: Size,
   half: number,
   from: Position,
   occupied: Position[],
 ): Position | null {
-  const free = seatSlots(zone, floor, half).filter((s) => !isSeatTaken(s, occupied, half))
+  const free = seatSlots(layout, zone, half).filter((s) => !isSeatTaken(s, occupied, half))
   if (free.length === 0) return null
   let best = free[0]
   let bd = Infinity
@@ -270,13 +259,13 @@ export function nearestFreeSeat(
  * its walls — for the proximity Join prompt. Null if none, or if you're already inside a
  * zone (that case is Leave, driven by zoneAt).
  */
-export function roomLikeNear(pos: Position, floor: Size, pad: number): Zone | null {
-  if (zoneAt(pos, floor)) return null
+export function roomLikeNear(layout: Layout, pos: Position, pad: number): Zone | null {
+  if (zoneAt(layout, pos)) return null
   let best: Zone | null = null
   let bd = Infinity
-  for (const z of LAYOUT) {
+  for (const z of layout.zones) {
     if (!isRoomLike(z.kind)) continue
-    const r = rectToPx(z.rect, floor)
+    const r = rectToPx(z.rect, layout.floor)
     if (
       pos.x < r.left - pad ||
       pos.x > r.left + r.width + pad ||
@@ -301,17 +290,17 @@ export function roomLikeNear(pos: Position, floor: Size, pad: number): Zone | nu
  * prompt. Occupancy uses the same `half*1.5` test as elsewhere. Returns { zone, seat } or null.
  */
 export function freeSeatNear(
+  layout: Layout,
   pos: Position,
-  floor: Size,
   half: number,
   pad: number,
   occupied: Position[],
 ): { zone: Zone; seat: Position } | null {
   let best: { zone: Zone; seat: Position } | null = null
   let bd = Infinity
-  for (const z of LAYOUT) {
+  for (const z of layout.zones) {
     // seatSlots returns [] for non-seat zones, so no explicit kind gate is needed here.
-    for (const s of seatSlots(z, floor, half)) {
+    for (const s of seatSlots(layout, z, half)) {
       const d = Math.hypot(pos.x - s.x, pos.y - s.y)
       if (d > pad || d >= bd) continue
       if (isSeatTaken(s, occupied, half)) continue
@@ -323,10 +312,10 @@ export function freeSeatNear(
 }
 
 /** Table id whose chair `pos` is sitting on (within the avatar radius), else null. */
-export function seatedTableAt(pos: Position, floor: Size, half: number): string | null {
-  for (const z of LAYOUT) {
+export function seatedTableAt(layout: Layout, pos: Position, half: number): string | null {
+  for (const z of layout.zones) {
     if (isRoomLike(z.kind)) continue
-    for (const s of seatSlots(z, floor, half)) {
+    for (const s of seatSlots(layout, z, half)) {
       if (Math.hypot(pos.x - s.x, pos.y - s.y) <= half) return z.id
     }
   }
@@ -334,8 +323,8 @@ export function seatedTableAt(pos: Position, floor: Size, half: number): string 
 }
 
 /** A spot just off the table (pushed away from its center) so you leave the chair. */
-export function standSpot(zone: Zone, floor: Size, from: Position, half: number): Position {
-  const r = rectToPx(zone.rect, floor)
+export function standSpot(layout: Layout, zone: Zone, from: Position, half: number): Position {
+  const r = rectToPx(zone.rect, layout.floor)
   const cx = r.left + r.width / 2
   const cy = r.top + r.height / 2
   const dx = from.x - cx

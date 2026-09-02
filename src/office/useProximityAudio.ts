@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react"
 import { useCallStateHooks } from "@stream-io/video-react-sdk"
-import { roomAt, seatedTableAt } from "./layout"
+import { roomAt, seatedTableAt, type Layout } from "./layout"
 import type { PeerState } from "./useRealtime"
-import { AVATAR_SIZE, distance, proximityVolume, type Position, type Size } from "./types"
+import { AVATAR_SIZE, distance, proximityVolume, type Position } from "./types"
 
 const EPSILON = 0.02
 const HALF = AVATAR_SIZE / 2
@@ -36,7 +36,7 @@ const HALF = AVATAR_SIZE / 2
 export function useProximityAudio(
   localPos: Position,
   positions: Record<string, PeerState>,
-  floor: Size,
+  layout: Layout,
   deafened: boolean,
   /** User id of the screen we currently have open, or null. */
   watchingId: string | null,
@@ -51,7 +51,7 @@ export function useProximityAudio(
 
   useEffect(() => {
     const liveSessionIds = new Set<string>()
-    const localRoom = roomAt(localPos, floor)
+    const localRoom = roomAt(layout, localPos)
 
     for (const p of participants) {
       if (p.isLocalParticipant) continue
@@ -70,7 +70,7 @@ export function useProximityAudio(
         // already gated to your room-context, so this can't cross a room boundary.
         vol = 1
       } else if (remotePos) {
-        const remoteRoom = roomAt(remotePos, floor)
+        const remoteRoom = roomAt(layout, remotePos)
         if (remoteRoom !== localRoom) {
           // Different room-context: rooms seal both ways — inside one you hear only that room,
           // outside you can't hear anyone shut in one.
@@ -84,8 +84,8 @@ export function useProximityAudio(
           vol = 1
         } else {
           // Both in the open: tablemates (same table) hear each other full; else distance falloff.
-          const lt = seatedTableAt(localPos, floor, HALF)
-          const rt = seatedTableAt(remotePos, floor, HALF)
+          const lt = seatedTableAt(layout, localPos, HALF)
+          const rt = seatedTableAt(layout, remotePos, HALF)
           vol = lt && lt === rt ? 1 : proximityVolume(distance(localPos, remotePos))
         }
       }
@@ -101,5 +101,5 @@ export function useProximityAudio(
     for (const sid of applied.current.keys()) {
       if (!liveSessionIds.has(sid)) applied.current.delete(sid)
     }
-  }, [participants, positions, localPos, floor, speaker, deafened, watchingId, localUserId])
+  }, [participants, positions, localPos, layout, speaker, deafened, watchingId, localUserId])
 }

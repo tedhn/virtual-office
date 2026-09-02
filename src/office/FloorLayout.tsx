@@ -1,8 +1,9 @@
-import { LAYOUT, rectToPx, seatSlots, type Zone } from "./layout"
-import { AVATAR_SIZE, type Position, type Size } from "./types"
+import { rectToPx, seatSlots, type Layout, type Zone } from "./layout"
+import { AVATAR_SIZE, type Position } from "./types"
 
 interface FloorLayoutProps {
-  floor: Size
+  /** The office being drawn: floor dimensions plus every zone on it. */
+  layout: Layout
   /** Room id the local avatar is currently inside, or null. */
   currentRoom: string | null
   /** Peer positions, used to mark which seats are taken. */
@@ -27,11 +28,11 @@ const HALF = AVATAR_SIZE / 2
  * A room edge on a perimeter wall drops its border and squares that corner so it merges
  * into the wall as one line.
  */
-export function FloorLayout({ floor, currentRoom, occupied, onEnter, onSit }: FloorLayoutProps) {
+export function FloorLayout({ layout, currentRoom, occupied, onEnter, onSit }: FloorLayoutProps) {
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {LAYOUT.map((zone) => {
-        const box = rectToPx(zone.rect, floor)
+      {layout.zones.map((zone) => {
+        const box = rectToPx(zone.rect, layout.floor)
 
         // Walls: solid bars, not interactive.
         if (zone.kind === "wall") {
@@ -113,25 +114,27 @@ export function FloorLayout({ floor, currentRoom, occupied, onEnter, onSit }: Fl
       })}
 
       {/* Chairs: click a free one to sit; taken ones are filled. */}
-      {LAYOUT.filter((z) => z.kind === "table" || z.kind === "dining").flatMap((z) =>
-        seatSlots(z, floor, HALF).map((s, i) => {
-          const taken = occupied.some((o) => Math.hypot(o.x - s.x, o.y - s.y) < HALF * 1.5)
-          return (
-            <div
-              key={`${z.id}-seat-${i}`}
-              onClick={taken ? undefined : () => onSit(z, s)}
-              title={taken ? undefined : "Sit here"}
-              className={[
-                "absolute rounded-full border",
-                taken
-                  ? "border-black/25 bg-black/25 pointer-events-none dark:border-white/25 dark:bg-white/25"
-                  : "cursor-pointer pointer-events-auto border-dashed border-black/40 hover:bg-black/15 dark:border-white/40 dark:hover:bg-white/15",
-              ].join(" ")}
-              style={{ width: SEAT_D, height: SEAT_D, left: s.x - SEAT_D / 2, top: s.y - SEAT_D / 2 }}
-            />
-          )
-        }),
-      )}
+      {layout.zones
+        .filter((z) => z.kind === "table" || z.kind === "dining")
+        .flatMap((z) =>
+          seatSlots(layout, z, HALF).map((s, i) => {
+            const taken = occupied.some((o) => Math.hypot(o.x - s.x, o.y - s.y) < HALF * 1.5)
+            return (
+              <div
+                key={`${z.id}-seat-${i}`}
+                onClick={taken ? undefined : () => onSit(z, s)}
+                title={taken ? undefined : "Sit here"}
+                className={[
+                  "absolute rounded-full border",
+                  taken
+                    ? "border-black/25 bg-black/25 pointer-events-none dark:border-white/25 dark:bg-white/25"
+                    : "cursor-pointer pointer-events-auto border-dashed border-black/40 hover:bg-black/15 dark:border-white/40 dark:hover:bg-white/15",
+                ].join(" ")}
+                style={{ width: SEAT_D, height: SEAT_D, left: s.x - SEAT_D / 2, top: s.y - SEAT_D / 2 }}
+              />
+            )
+          }),
+        )}
     </div>
   )
 }

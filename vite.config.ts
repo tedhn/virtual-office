@@ -1,5 +1,5 @@
 import path from "path"
-import { defineConfig } from "vite"
+import { defineConfig } from "vitest/config"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 
@@ -18,5 +18,10 @@ export default defineConfig({
       "/api": "http://localhost:3001",
       "/ws": { target: "ws://localhost:3001", ws: true },
     },
+  },
+  test: {
+    // Geometry is pure maths over numbers — no DOM, so no jsdom dependency to install.
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
 })

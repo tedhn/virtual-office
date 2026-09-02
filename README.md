@@ -23,6 +23,10 @@ avatar toward the other (WASD / arrow keys) to hear the proximity audio.
 - `src/office/` — the world: `useMovement` (keyboard + broadcast via
   `call.sendCustomEvent`), `usePositions` (`call.on('custom')` → remote positions),
   `useProximityAudio` (distance → `speaker.setParticipantVolume`), and the floor / avatars.
+- `src/office/layout.ts` — the geometry: room-context resolution, seat derivation and
+  collision. Every function takes the `Layout` (floor dimensions + zones) it operates on,
+  so an office's floorplan is data rather than code. `defaultLayout.ts` holds the one this
+  app currently ships; `layout.test.ts` covers the geometry.
 - Everyone joins one call (`default:office-main`), mic on / camera off.
 
 ---
@@ -46,6 +50,7 @@ npm install
 npm run dev      # start dev server
 npm run build    # typecheck + production build
 npm run preview  # preview the build
+npm test         # run the test suite (Vitest)
 ```
 
 ## Adding components
