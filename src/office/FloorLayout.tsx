@@ -8,10 +8,10 @@ interface FloorLayoutProps {
   insideRoom: string | null
   /** Peer positions, used to mark which seats are taken. */
   occupied: Position[]
-  /** Join/leave a clicked room. */
-  onEnter: (zone: Zone) => void
-  /** Sit at (or, if it's your seat, stand from) a clicked chair. */
-  onSit: (zone: Zone, seat: Position) => void
+  /** Join/leave a clicked room. Omitted when the Floor is only being looked at. */
+  onEnter?: (zone: Zone) => void
+  /** Sit at (or, if it's your seat, stand from) a clicked chair. Omitted likewise. */
+  onSit?: (zone: Zone, seat: Position) => void
 }
 
 const EPS = 1e-6
@@ -29,6 +29,10 @@ const HALF = AVATAR_SIZE / 2
  *
  * A Room edge on a perimeter wall drops its border and squares that corner so it merges
  * into the wall as one line.
+ *
+ * Without `onEnter` / `onSit` the same Floor draws as something to look at rather than
+ * something to walk on: no cursors, no hover prompts, nothing clickable. That is how an
+ * Office renders for someone who is not standing in it.
  */
 export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: FloorLayoutProps) {
   return (
@@ -96,9 +100,10 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
         return (
           <div
             key={zone.id}
-            onClick={() => onEnter(zone)}
+            onClick={onEnter ? () => onEnter(zone) : undefined}
             className={[
-              "group absolute flex items-center justify-center cursor-pointer pointer-events-auto",
+              "group absolute flex items-center justify-center",
+              onEnter ? "cursor-pointer pointer-events-auto" : "pointer-events-none",
               nonPrivate
                 ? "border-cyan-700/40 bg-cyan-500/[.10] hover:bg-cyan-500/[.18] dark:border-cyan-300/30 dark:bg-cyan-400/[.10] dark:hover:bg-cyan-400/[.18]"
                 : "border-black/30 bg-black/[.04] hover:bg-black/[.08] dark:border-white/25 dark:bg-white/[.04] dark:hover:bg-white/[.08]",
@@ -124,9 +129,11 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
                 {zone.label}
               </span>
             )}
-            <span className="pointer-events-none absolute rounded-full bg-black/75 px-3 py-1 text-sm font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 dark:bg-white/90 dark:text-black">
-              {insideRoom === zone.id ? `Leave ${zone.label}` : `Join ${zone.label}`}
-            </span>
+            {onEnter && (
+              <span className="pointer-events-none absolute rounded-full bg-black/75 px-3 py-1 text-sm font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 dark:bg-white/90 dark:text-black">
+                {insideRoom === zone.id ? `Leave ${zone.label}` : `Join ${zone.label}`}
+              </span>
+            )}
           </div>
         )
       })}
@@ -137,16 +144,20 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
         .flatMap((z) =>
           seatSlots(layout, z, HALF).map((s, i) => {
             const taken = occupied.some((o) => Math.hypot(o.x - s.x, o.y - s.y) < HALF * 1.5)
+            const sittable = onSit && !taken
             return (
               <div
                 key={`${z.id}-seat-${i}`}
-                onClick={taken ? undefined : () => onSit(z, s)}
-                title={taken ? undefined : "Sit here"}
+                onClick={sittable ? () => onSit(z, s) : undefined}
+                title={sittable ? "Sit here" : undefined}
                 className={[
                   "absolute rounded-full border",
                   taken
                     ? "border-black/25 bg-black/25 pointer-events-none dark:border-white/25 dark:bg-white/25"
-                    : "cursor-pointer pointer-events-auto border-dashed border-black/40 hover:bg-black/15 dark:border-white/40 dark:hover:bg-white/15",
+                    : "border-dashed border-black/40 dark:border-white/40",
+                  sittable
+                    ? "cursor-pointer pointer-events-auto hover:bg-black/15 dark:hover:bg-white/15"
+                    : "pointer-events-none",
                 ].join(" ")}
                 style={{ width: SEAT_D, height: SEAT_D, left: s.x - SEAT_D / 2, top: s.y - SEAT_D / 2 }}
               />

@@ -10,12 +10,17 @@ interface TokenResponse {
   token: string
 }
 
-/** Ask our token server for a Stream JWT. Secret never touches the browser. */
-async function fetchToken(userId: string): Promise<TokenResponse> {
+/**
+ * Ask our token server for a Stream JWT. Secret never touches the browser.
+ *
+ * `office` is the slug of the Office being walked into: the server mints only for one
+ * that exists and is published, so a token cannot be had for an Office that isn't there.
+ */
+async function fetchToken(userId: string, office: string): Promise<TokenResponse> {
   const res = await fetch(`${API_BASE}/api/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify({ userId, office }),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => "")
@@ -31,8 +36,9 @@ async function fetchToken(userId: string): Promise<TokenResponse> {
 export async function createClient(
   userId: string,
   userName: string,
+  office: string,
 ): Promise<StreamVideoClient> {
-  const { apiKey, token } = await fetchToken(userId)
+  const { apiKey, token } = await fetchToken(userId, office)
   // Prefer the key returned by the server; fall back to the build-time env key.
   const resolvedKey = apiKey || API_KEY
   if (!resolvedKey) {
@@ -46,7 +52,7 @@ export async function createClient(
     user,
     token,
     // Re-fetch on expiry so long sessions don't drop.
-    tokenProvider: async () => (await fetchToken(userId)).token,
+    tokenProvider: async () => (await fetchToken(userId, office)).token,
   })
 }
 

@@ -8,6 +8,8 @@ import cors from "cors"
 import { WebSocketServer } from "ws"
 import { StreamClient } from "@stream-io/node-sdk"
 import { attachRelay } from "./relay.mjs"
+import { publishedOfficeCheck, supabaseConfig } from "./offices.mjs"
+import { tokenRoute } from "./token.mjs"
 
 // Separate Stream apps per environment: dev keys in .dev, prod keys in .prod, anything shared
 // in .env. NODE_ENV picks the file — `npm run dev` sets development, `npm start` production.
@@ -37,29 +39,39 @@ if (!STREAM_API_KEY || !STREAM_API_SECRET) {
   process.exit(1)
 }
 
+// The token endpoint mints only for an Office that exists and is published, so the server
+// needs to be able to ask which those are. Refusing to start is deliberate: starting
+// without it would mean either minting for anything, or an endpoint that answers 503 to
+// every request with nobody having been told why.
+const supabase = supabaseConfig(process.env)
+if (!supabase) {
+  console.error(
+    "Missing SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY (the VITE_ pair is read too). The token " +
+      "endpoint needs them to tell a real Office from an invented one — see .env.example.",
+  )
+  process.exit(1)
+}
+
 const client = new StreamClient(STREAM_API_KEY, STREAM_API_SECRET)
 
 const app = express()
 app.use(cors())
 app.use(express.json())
 
-// Mint a user token. Secret stays on the server; browser only ever sees the JWT.
-app.post("/api/token", (req, res) => {
-  const { userId } = req.body ?? {}
-  if (!userId || typeof userId !== "string") {
-    return res.status(400).json({ error: "userId is required" })
-  }
-  try {
-    const token = client.generateUserToken({
-      user_id: userId,
-      validity_in_seconds: 60 * 60 * 24, // 24h
-    })
-    res.json({ apiKey: STREAM_API_KEY, token })
-  } catch (err) {
-    console.error("token error:", err)
-    res.status(500).json({ error: "failed to generate token" })
-  }
-})
+// Mint a user token for someone walking into a published Office. Secret stays on the
+// server; the browser only ever sees the JWT. The gate itself lives in ./token.mjs.
+app.post(
+  "/api/token",
+  tokenRoute({
+    apiKey: STREAM_API_KEY,
+    mintToken: (userId) =>
+      client.generateUserToken({
+        user_id: userId,
+        validity_in_seconds: 60 * 60 * 24, // 24h
+      }),
+    isOfficePublished: publishedOfficeCheck(supabase),
+  }),
+)
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }))
 

@@ -1,92 +1,30 @@
-import { useCallback, useRef, useState } from "react"
-import {
-  StreamCall,
-  StreamVideo,
-  type Call,
-  type StreamVideoClient,
-} from "@stream-io/video-react-sdk"
 import { Toaster } from "sonner"
-import { JoinScreen } from "./JoinScreen"
-import { OfficeRoom } from "./office/OfficeRoom"
-import { createClient, makeUserId } from "./lib/stream"
 import { useAuthSession } from "./auth/useAuthSession"
+import { HomeScreen } from "./HomeScreen"
+import { NotFound } from "./NotFound"
+import { useRoute } from "./lib/useRoute"
+import { OfficeView } from "./office/OfficeView"
 
-const CALL_TYPE = "default"
-const CALL_ID = "office-main"
-
-type Session = {
-  client: StreamVideoClient
-  call: Call
-  userId: string
-  name: string
-}
-
+/**
+ * The whole route table: the root is where an Office is made, a slug is an Office, and
+ * anything else is nowhere (see `lib/routes.ts`).
+ *
+ * An identity is arranged here rather than per screen, because every screen wants the
+ * same one: a Visitor is signed in anonymously as the page loads, and an Owner signs in
+ * on top of that with a magic link (ADR-0003).
+ */
 function App() {
-  const { session: identity, ensureIdentity, requestMagicLink } = useAuthSession()
-  const [session, setSession] = useState<Session | null>(null)
-  const [connecting, setConnecting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const busy = useRef(false)
-
-  const handleJoin = useCallback(async (name: string) => {
-    if (busy.current) return
-    busy.current = true
-    setConnecting(true)
-    setError(null)
-    let client: StreamVideoClient | undefined
-    try {
-      // The signed-in identity is who walks in, so a refresh brings back the same person
-      // rather than a fresh stranger — waited for here, since someone can hit Join before
-      // the silent sign-in has come back. Falls back to a per-join id only when there is
-      // no Supabase configured, which keeps the office usable without one.
-      const userId = (await ensureIdentity())?.user.id ?? makeUserId(name)
-      client = await createClient(userId, name)
-      const call = client.call(CALL_TYPE, CALL_ID)
-      setSession({ client, call, userId, name })
-    } catch (err) {
-      console.error(err)
-      setError(err instanceof Error ? err.message : "Failed to connect")
-      await client?.disconnectUser().catch(() => {})
-    } finally {
-      setConnecting(false)
-      busy.current = false
-    }
-  }, [ensureIdentity])
-
-  const handleLeave = useCallback(async () => {
-    if (!session) return
-    const { client, call } = session
-    setSession(null)
-    try {
-      await call.leave()
-    } catch {
-      /* not joined yet — ignore */
-    }
-    await client.disconnectUser().catch(() => {})
-  }, [session])
+  const route = useRoute()
+  const { session, error, requestMagicLink } = useAuthSession()
 
   return (
     <>
       <Toaster />
-      {session ? (
-        <StreamVideo client={session.client}>
-          <StreamCall call={session.call}>
-            <OfficeRoom
-              localUserId={session.userId}
-              localName={session.name}
-              onLeave={handleLeave}
-            />
-          </StreamCall>
-        </StreamVideo>
-      ) : (
-        <JoinScreen
-          onJoin={handleJoin}
-          connecting={connecting}
-          error={error}
-          session={identity}
-          onRequestLink={requestMagicLink}
-        />
+      {route.kind === "home" && (
+        <HomeScreen session={session} error={error} onRequestLink={requestMagicLink} />
       )}
+      {route.kind === "office" && <OfficeView slug={route.slug} />}
+      {route.kind === "notFound" && <NotFound />}
     </>
   )
 }

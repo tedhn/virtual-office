@@ -204,18 +204,22 @@ describe("Chat isolation", () => {
   })
 })
 
-describe("Shared geometry module", () => {
+describe("Shared modules loaded from source", () => {
   const run = promisify(execFile)
 
-  it("loads in plain Node, the way the server actually starts", async () => {
-    // Vitest resolves extensionless imports through Vite; plain Node does not. A runtime
-    // import inside the shared graph that loses its `.ts` passes every test above and
-    // fails only here — and, without this, only in production. See ADR-0004.
-    const relay = new URL("./relay.mjs", import.meta.url).href
-    await run(process.execPath, [
-      "--input-type=module",
-      "-e",
-      `await import(${JSON.stringify(relay)})`,
-    ])
-  })
+  // Every server module that imports TypeScript from `src/`: the relay for the geometry,
+  // the token route for the slug shape.
+  for (const module of ["./relay.mjs", "./token.mjs"]) {
+    it(`loads ${module} in plain Node, the way the server actually starts`, async () => {
+      // Vitest resolves extensionless imports through Vite; plain Node does not. A runtime
+      // import inside the shared graph that loses its `.ts` passes every test above and
+      // fails only here — and, without this, only in production. See ADR-0004.
+      const href = new URL(module, import.meta.url).href
+      await run(process.execPath, [
+        "--input-type=module",
+        "-e",
+        `await import(${JSON.stringify(href)})`,
+      ])
+    })
+  }
 })

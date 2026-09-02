@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { DEFAULT_LAYOUT } from "@/office/defaultLayout"
 import type { Layout } from "@/office/layout"
-import { createOffice, publishDraft, saveDraft, type OfficeRows } from "./offices"
+import { newOfficeLayout } from "@/office/newOfficeLayout"
+import {
+  createOffice,
+  createOfficeFromName,
+  OfficeWriteError,
+  publishDraft,
+  saveDraft,
+  type OfficeRows,
+} from "./offices"
 
 const OWNER = "11111111-1111-1111-1111-111111111111"
 
@@ -11,12 +19,25 @@ const NO_SPAWN: Layout = {
   zones: [{ id: "w", kind: "wall", rect: { x: 0, y: 0, w: 0.1, h: 1 } }],
 }
 
-/** An in-memory stand-in for the offices table, minus its row-level security. */
-function fakeRows() {
+/** The SQLSTATE Postgres raises when a slug is already spoken for. */
+const UNIQUE_VIOLATION = "23505"
+
+/**
+ * An in-memory stand-in for the offices table, minus its row-level security. `taken`
+ * names slugs an earlier Office already answers to, which the database refuses the way
+ * the real one does.
+ */
+function fakeRows(taken: string[] = []) {
   const calls: { op: string; args: unknown }[] = []
   const rows: OfficeRows = {
     insert: async (fields) => {
       calls.push({ op: "insert", args: fields })
+      if (taken.includes(fields.slug)) {
+        throw new OfficeWriteError(
+          'duplicate key value violates unique constraint "offices_slug_key"',
+          UNIQUE_VIOLATION,
+        )
+      }
       return { id: "office-1", layout_version: fields.published_layout ? 1 : 0, ...fields }
     },
     update: async (id, patch) => {
@@ -144,5 +165,88 @@ describe("Publishing a draft Layout", () => {
       "an Office needs exactly one spawn Zone",
     )
     expect(calls).toEqual([])
+  })
+})
+
+describe("Naming an Office into existence", () => {
+  /** Predictable tails, so a collision can be made to happen on purpose. */
+  const tails = () => {
+    let n = 0
+    return () => `t${n++}`
+  }
+
+  it("addresses the Office by the slug its name asks for", async () => {
+    const { rows } = fakeRows()
+    const office = await createOfficeFromName(rows, { ownerId: OWNER, name: "Acme HQ" }, tails())
+    expect(office).toMatchObject({ owner_id: OWNER, slug: "acme-hq", name: "Acme HQ" })
+  })
+
+  it("starts it as an empty Floor with one Spawn, published, so its URL renders at once", async () => {
+    const { rows, calls } = fakeRows()
+    const office = await createOfficeFromName(rows, { ownerId: OWNER, name: "Acme HQ" }, tails())
+    expect(calls).toHaveLength(1)
+    expect(office.published_layout).toEqual(newOfficeLayout())
+    expect(office.draft_layout).toEqual(newOfficeLayout())
+    expect(office.floor_width).toBe(newOfficeLayout().floor.width)
+    expect(office.floor_height).toBe(newOfficeLayout().floor.height)
+  })
+
+  it("trims the name it stores, so a trailing space is not part of the Office", async () => {
+    const { rows } = fakeRows()
+    const office = await createOfficeFromName(rows, { ownerId: OWNER, name: "  Acme HQ " }, tails())
+    expect(office.name).toBe("Acme HQ")
+  })
+
+  it("takes the next slug when the one the name asks for is spoken for", async () => {
+    const { rows, calls } = fakeRows(["acme-hq"])
+    const office = await createOfficeFromName(rows, { ownerId: OWNER, name: "Acme HQ" }, tails())
+    expect(office.slug).toBe("acme-hq-t0")
+    expect(calls).toHaveLength(2)
+  })
+
+  it("gives up rather than asking the database forever", async () => {
+    const { rows, calls } = fakeRows([
+      "acme-hq",
+      "acme-hq-t0",
+      "acme-hq-t1",
+      "acme-hq-t2",
+      "acme-hq-t3",
+    ])
+    await expect(
+      createOfficeFromName(rows, { ownerId: OWNER, name: "Acme HQ" }, tails()),
+    ).rejects.toThrow(/duplicate key/)
+    expect(calls).toHaveLength(5)
+  })
+
+  it("passes on a refusal that is not a collision, without trying another slug", async () => {
+    const calls: { op: string; args: unknown }[] = []
+    const rows: OfficeRows = {
+      insert: async (fields) => {
+        calls.push({ op: "insert", args: fields })
+        throw new OfficeWriteError("new row violates row-level security policy", "42501")
+      },
+      update: async () => {
+        throw new Error("not called")
+      },
+    }
+    await expect(
+      createOfficeFromName(rows, { ownerId: OWNER, name: "Acme HQ" }, tails()),
+    ).rejects.toThrow(/row-level security/)
+    expect(calls).toHaveLength(1)
+  })
+
+  it("refuses an Office with no name at all", async () => {
+    const { rows, calls } = fakeRows()
+    await expect(
+      createOfficeFromName(rows, { ownerId: OWNER, name: "   " }, tails()),
+    ).rejects.toThrow("name")
+    expect(calls).toEqual([])
+  })
+
+  it("still finds a slug for a name with nothing slug-shaped in it", async () => {
+    const { rows } = fakeRows()
+    const office = await createOfficeFromName(rows, { ownerId: OWNER, name: "🏢" }, tails())
+    expect(office.slug).toBe("office")
+    expect(office.name).toBe("🏢")
   })
 })

@@ -1,4 +1,5 @@
 import type { PostgrestSingleResponse, SupabaseClient } from "@supabase/supabase-js"
+import { OfficeWriteError } from "./offices"
 import type { Office, OfficeFields, OfficeRows, PublishedOffice } from "./offices"
 
 /**
@@ -8,8 +9,12 @@ import type { Office, OfficeFields, OfficeRows, PublishedOffice } from "./office
  * the database), so this layer stays a place where nothing can go subtly wrong.
  */
 
+/**
+ * The row, or the refusal — carrying the database's SQLSTATE, which is the only reliable
+ * way to tell a slug that is already taken from a write that was not allowed at all.
+ */
 function rowOrThrow<T>(response: PostgrestSingleResponse<T>): T {
-  if (response.error) throw new Error(response.error.message)
+  if (response.error) throw new OfficeWriteError(response.error.message, response.error.code)
   return response.data
 }
 

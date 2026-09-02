@@ -13,18 +13,27 @@ Built on the **GetStream Video SDK**.
 3. `npm install`
 4. `npm run dev` — starts the Vite app **and** the token server together.
 
-For identity and offices, point the app at a Supabase project (see **Identity and
-offices** below): `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` go in `.env`
-(the `VITE_` prefix is what reaches the browser — a `NEXT_PUBLIC_…` key pasted from the
-dashboard does not), and `npm run db:push` applies `supabase/migrations` to it.
+Point the app at a Supabase project (see **Identity and offices** below):
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` go in `.env` (the `VITE_` prefix is
+what reaches the browser — a `NEXT_PUBLIC_…` key pasted from the dashboard does not), and
+`npm run db:push` applies `supabase/migrations` to it. The token server reads that same
+pair, and refuses to start without it: it has to be able to tell a real office from an
+invented one before it mints anything (ADR-0006).
 
-Open two browser windows, join with different names, allow mic access, and walk one
-avatar toward the other (WASD / arrow keys) to hear the proximity audio.
+Sign in with an email link, name an office, and you land on it at its own URL — an empty
+floor with a single spawn zone, and a link you can share. Nobody can walk around on it
+yet: presence per office is the next piece of work.
 
 ### How it works
 
+- **An office is its URL.** `/` creates one, `/<slug>` renders one, and anything else is a
+  404 — the whole route table is `src/lib/routes.ts`, a pure function over the path, with
+  `useRoute.ts` as the twenty lines that touch the browser. A slug is permanent: it comes
+  from the office's name, is never reassigned, and is checked in the same shape by the
+  client (`src/lib/slug.ts`), the token server and the database.
 - `server/index.mjs` — Express token server (:3001). Mints Stream JWTs; the API secret
-  never reaches the browser.
+  never reaches the browser. It mints only for an office that exists and is published
+  (`server/token.mjs`, ADR-0006), which is why it needs Supabase credentials to start.
 - `server/relay.mjs` — the WebSocket fan-out for positions and chat, and the one place
   chat isolation is enforced: a message reaches only sockets whose reported position
   shares the sender's room-context. It computes that from `src/office/layout.ts`, loaded
@@ -33,13 +42,22 @@ avatar toward the other (WASD / arrow keys) to hear the proximity audio.
 - `src/office/` — the world: `useMovement` (keyboard + broadcast via
   `call.sendCustomEvent`), `usePositions` (`call.on('custom')` → remote positions),
   `useProximityAudio` (distance → `speaker.setParticipantVolume`), and the floor / avatars.
+- `src/office/newOfficeLayout.ts` — what a new office starts as: an empty floor with one
+  spawn zone, which is the least that can be published, since an office with nowhere to
+  arrive is one nobody can enter.
 - `src/office/layout.ts` — the geometry: room-context resolution, spawn scatter, seat
   derivation and collision. Every function takes the `Layout` (floor dimensions + zones)
   it operates on, so an office's floorplan is data rather than code. A zone is one of five
   kinds — room, table, wall, spawn, exterior — with privacy and table styling as flags on
   the zone. `defaultLayout.ts` holds the floorplan this app currently ships;
   `layout.test.ts` covers the geometry.
-- Everyone joins one call (`default:office-main`), mic on / camera off.
+- `src/office/FloorPreview.tsx` — an office's floor with nobody on it, fitted whole into
+  the viewport. `OfficeFloor` is the other way to draw a layout: zoomed to a person and
+  scrolled to follow them. `FloorLayout` draws either, and without click handlers it draws
+  something to look at rather than something to walk on.
+- The pieces that made the one hardcoded office walkable — `JoinScreen`, `OfficeRoom`,
+  `useRealtime` — are still here and still tested, waiting to be pointed at an office
+  rather than at a constant.
 
 ### Identity and offices
 
@@ -47,10 +65,12 @@ avatar toward the other (WASD / arrow keys) to hear the proximity audio.
   the page loads, and the Supabase client persists that session — so a refresh brings
   back the same person, not a stranger. **Creating** an Office needs a magic-link
   account, because an Office outlives the browser storage an anonymous identity lives in
-  (ADR-0003). `AccountSignIn` is the second door; the join form is untouched.
+  (ADR-0003). `AccountSignIn` is that second door, and the create form appears behind it.
 - `supabase/migrations/` — the `offices` table: owner, permanent slug, name, floor
   dimensions, the published and draft Layouts, and a layout version the database bumps
-  itself on every publish. A Layout is one JSON document (ADR-0001).
+  itself on every publish. A Layout is one JSON document (ADR-0001). An office is deleted
+  by being marked deleted, never by having its row removed: the row is what keeps its slug
+  spent, so a shared link can never come to mean somewhere else.
 - **Row-level security is the boundary.** The table is owner-only for every operation.
   Row-level security filters rows and a draft is a *column*, so the public read surface
   is the `offices_public` view, which has no draft column to leak and shows only
