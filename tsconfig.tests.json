@@ -1,0 +1,11 @@
+{
+  /* The database suites: same rules as the app, but they run in Node and reach the
+     repo's own modules through the `@/` alias, so they need node types instead of
+     Vite's and a wider include. */
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tests.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["supabase/tests"]
+}

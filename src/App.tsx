@@ -9,6 +9,7 @@ import { Toaster } from "sonner"
 import { JoinScreen } from "./JoinScreen"
 import { OfficeRoom } from "./office/OfficeRoom"
 import { createClient, makeUserId } from "./lib/stream"
+import { useAuthSession } from "./auth/useAuthSession"
 
 const CALL_TYPE = "default"
 const CALL_ID = "office-main"
@@ -21,6 +22,7 @@ type Session = {
 }
 
 function App() {
+  const { session: identity, ensureIdentity, requestMagicLink } = useAuthSession()
   const [session, setSession] = useState<Session | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +35,11 @@ function App() {
     setError(null)
     let client: StreamVideoClient | undefined
     try {
-      const userId = makeUserId(name)
+      // The signed-in identity is who walks in, so a refresh brings back the same person
+      // rather than a fresh stranger — waited for here, since someone can hit Join before
+      // the silent sign-in has come back. Falls back to a per-join id only when there is
+      // no Supabase configured, which keeps the office usable without one.
+      const userId = (await ensureIdentity())?.user.id ?? makeUserId(name)
       client = await createClient(userId, name)
       const call = client.call(CALL_TYPE, CALL_ID)
       setSession({ client, call, userId, name })
@@ -45,7 +51,7 @@ function App() {
       setConnecting(false)
       busy.current = false
     }
-  }, [])
+  }, [ensureIdentity])
 
   const handleLeave = useCallback(async () => {
     if (!session) return
@@ -73,7 +79,13 @@ function App() {
           </StreamCall>
         </StreamVideo>
       ) : (
-        <JoinScreen onJoin={handleJoin} connecting={connecting} error={error} />
+        <JoinScreen
+          onJoin={handleJoin}
+          connecting={connecting}
+          error={error}
+          session={identity}
+          onRequestLink={requestMagicLink}
+        />
       )}
     </>
   )

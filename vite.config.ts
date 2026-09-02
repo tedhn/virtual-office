@@ -23,6 +23,6 @@ export default defineConfig({
     // Geometry is pure maths over numbers — no DOM, so no jsdom dependency to install.
     // The relay tests drive a real WebSocket server, which is also happy in plain Node.
     environment: "node",
-    include: ["src/**/*.test.ts", "server/**/*.test.mjs"],
+    include: ["src/**/*.test.ts", "server/**/*.test.mjs", "supabase/tests/**/*.test.ts"],
   },
 })

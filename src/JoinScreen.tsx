@@ -10,14 +10,19 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { AccountSignIn } from "@/auth/AccountSignIn"
+import type { AuthSession } from "@/auth/session"
 
 interface JoinScreenProps {
   onJoin: (name: string) => void
   connecting: boolean
   error?: string | null
+  /** The identity walking in — anonymous for a Visitor, an account for a creator. */
+  session: AuthSession | null
+  onRequestLink: (email: string) => Promise<void>
 }
 
-export function JoinScreen({ onJoin, connecting, error }: JoinScreenProps) {
+export function JoinScreen({ onJoin, connecting, error, session, onRequestLink }: JoinScreenProps) {
   const [name, setName] = useState("")
 
   const submit = (e: React.FormEvent) => {
@@ -62,6 +67,8 @@ export function JoinScreen({ onJoin, connecting, error }: JoinScreenProps) {
           </CardFooter>
         </form>
       </Card>
+
+      <AccountSignIn session={session} onRequestLink={onRequestLink} />
     </div>
   )
 }

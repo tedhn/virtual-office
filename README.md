@@ -13,6 +13,9 @@ Built on the **GetStream Video SDK**.
 3. `npm install`
 4. `npm run dev` — starts the Vite app **and** the token server together.
 
+For identity and offices, add Supabase (see **Identity and offices** below): either
+`npm run db:start` for a local stack, or a hosted project's URL + anon key in `.env`.
+
 Open two browser windows, join with different names, allow mic access, and walk one
 avatar toward the other (WASD / arrow keys) to hear the proximity audio.
 
@@ -35,6 +38,39 @@ avatar toward the other (WASD / arrow keys) to hear the proximity audio.
   the zone. `defaultLayout.ts` holds the floorplan this app currently ships;
   `layout.test.ts` covers the geometry.
 - Everyone joins one call (`default:office-main`), mic on / camera off.
+
+### Identity and offices
+
+- **Visiting takes no account.** `src/auth/session.ts` signs a Visitor in anonymously as
+  the page loads, and the Supabase client persists that session — so a refresh brings
+  back the same person, not a stranger. **Creating** an Office needs a magic-link
+  account, because an Office outlives the browser storage an anonymous identity lives in
+  (ADR-0003). `AccountSignIn` is the second door; the join form is untouched.
+- `supabase/migrations/` — the `offices` table: owner, permanent slug, name, floor
+  dimensions, the published and draft Layouts, and a layout version the database bumps
+  itself on every publish. A Layout is one JSON document (ADR-0001).
+- **Row-level security is the boundary.** The table is owner-only for every operation.
+  Row-level security filters rows and a draft is a *column*, so the public read surface
+  is the `offices_public` view, which has no draft column to leak and shows only
+  published Offices. Creating an Office is refused outright for an anonymous identity.
+- `src/lib/offices.ts` — the write path. A Layout is validated against
+  `src/office/layoutSchema.ts` before a request is issued: a draft only has to be
+  well-formed, publishing also has to describe an Office a Visitor can arrive in.
+  The database keeps a backstop of its own — a Layout must be a document with a `zones`
+  array and a Floor matching the row's floor columns — but it stops short of checking
+  Zones, so that the schema has one implementation and not a second one in SQL. Anyone
+  holding the (public) anon key can therefore still write well-shaped nonsense; making
+  validation a real boundary means moving Layout writes behind the token server, which
+  already loads the shared module from source.
+- `supabase/tests/offices.rls.test.ts` proves the rules against a real database — owner
+  writes succeed, strangers fail, a Visitor sees published Layouts and never a draft. It
+  skips unless `.env` names a Supabase to run against.
+
+```bash
+npm run db:start   # local Supabase (Docker), applies supabase/migrations
+npm run db:reset   # re-apply migrations from scratch
+npm run db:push    # apply migrations to a linked hosted project
+```
 
 ---
 
