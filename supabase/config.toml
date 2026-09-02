@@ -155,6 +155,9 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
+# This file is the source of truth for auth settings on the LINKED project too:
+# `npm run config:push` applies what is here to it. Change site_url to the deployed
+# origin once there is one, or magic links will land people on localhost.
 site_url = "http://127.0.0.1:5173"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""

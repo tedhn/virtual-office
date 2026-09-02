@@ -13,8 +13,9 @@ Built on the **GetStream Video SDK**.
 3. `npm install`
 4. `npm run dev` — starts the Vite app **and** the token server together.
 
-For identity and offices, add Supabase (see **Identity and offices** below): either
-`npm run db:start` for a local stack, or a hosted project's URL + anon key in `.env`.
+For identity and offices, point the app at a Supabase project (see **Identity and
+offices** below): its URL and anon key go in `.env`, and `npm run db:push` applies
+`supabase/migrations` to it.
 
 Open two browser windows, join with different names, allow mic access, and walk one
 avatar toward the other (WASD / arrow keys) to hear the proximity audio.
@@ -66,10 +67,26 @@ avatar toward the other (WASD / arrow keys) to hear the proximity audio.
   writes succeed, strangers fail, a Visitor sees published Layouts and never a draft. It
   skips unless `.env` names a Supabase to run against.
 
+Against a hosted project — the usual case:
+
+```bash
+npx supabase login
+npx supabase link --project-ref <your-project-ref>
+npm run db:push       # apply supabase/migrations
+npm run config:push   # apply supabase/config.toml's auth settings (anonymous sign-ins,
+                      # site URL, redirect allow-list) to that project
+```
+
+`supabase/config.toml` is the source of truth for those auth settings, so a change there
+is pushed rather than clicked in the dashboard.
+
+A local stack is optional, and the only way to read the magic-link email a test sends —
+without one, that suite mints the link through the admin API instead:
+
 ```bash
 npm run db:start   # local Supabase (Docker), applies supabase/migrations
 npm run db:reset   # re-apply migrations from scratch
-npm run db:push    # apply migrations to a linked hosted project
+npm run db:stop
 ```
 
 ---

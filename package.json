@@ -21,7 +21,8 @@
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
-    "db:push": "supabase db push"
+    "db:push": "supabase db push",
+    "config:push": "supabase config push"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",

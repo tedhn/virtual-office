@@ -7,19 +7,34 @@ import { supabaseOfficeRows } from "@/lib/officeRows"
 import { DEFAULT_LAYOUT } from "@/office/defaultLayout"
 
 /**
- * Magic-link sign-in, end to end: the app asks for a link, an email actually arrives,
- * and using it produces a real account — the thing owning an Office requires (ADR-0003).
+ * Magic-link sign-in end to end: the app asks for a link, and the credential in that
+ * link produces a real account — the thing owning an Office requires (ADR-0003).
  *
- * Reading the email needs the mail catcher a local Supabase runs (Mailpit, :54324), so
- * this suite is local-only and skips when nothing answers there.
+ * Where the credential is read from depends on which Supabase this is pointed at. A
+ * local stack catches its own mail (Mailpit, :54324), so the whole path is exercised,
+ * the delivered email included. A hosted project sends real email nobody here can read,
+ * so the link is minted through the admin API instead — the same token the email would
+ * have carried, without a message anyone has to open.
+ *
+ * Hosted projects also rate-limit their built-in mailer hard (a couple of messages an
+ * hour on the free tier). The request to send is still made, because that is the call
+ * the app makes; being turned away by the rate limiter is not a failure of this suite.
  */
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
 const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 const inbox = process.env.SUPABASE_INBUCKET_URL ?? "http://127.0.0.1:54324"
+const configured = Boolean(url && anonKey && serviceRoleKey)
 
-const reachable = async (): Promise<boolean> => {
-  if (!url || !anonKey || !serviceRoleKey) return false
+if (!configured) {
+  console.warn(
+    "[magicLink] skipped: set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in .env",
+  )
+}
+
+/** Whether a mail catcher is answering, i.e. whether the delivered email is readable. */
+async function mailCatcherAnswers(): Promise<boolean> {
+  if (!configured) return false
   try {
     const res = await fetch(`${inbox}/api/v1/messages`, { signal: AbortSignal.timeout(2000) })
     return res.ok
@@ -28,20 +43,16 @@ const reachable = async (): Promise<boolean> => {
   }
 }
 
-const runnable = await reachable()
-if (!runnable) {
-  console.warn(
-    "[magicLink] skipped: needs a local Supabase with its mail catcher on :54324 (npm run db:start)",
-  )
-}
+const readsMail = await mailCatcherAnswers()
+
+/** Supabase's way of saying the mailer is out of quota, whichever wording it uses. */
+const RATE_LIMITED = /rate limit|too many requests|over_email_send_rate_limit/i
 
 /**
- * The credential out of the email that actually arrived: the link's token where the
- * template sends a link, the six-digit code where it sends a code.
+ * The credential out of the email that arrived: the link's token where the template
+ * sends a link, the six-digit code where it sends a code.
  */
-async function magicLinkCredential(
-  email: string,
-): Promise<{ token_hash: string } | { code: string }> {
+async function credentialFromMail(email: string): Promise<{ token_hash: string } | { code: string }> {
   for (let attempt = 0; attempt < 40; attempt++) {
     const list = await fetch(`${inbox}/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`)
     const { messages } = (await list.json()) as { messages?: { ID: string }[] }
@@ -59,7 +70,17 @@ async function magicLinkCredential(
   throw new Error(`no magic-link email arrived for ${email}`)
 }
 
-describe.skipIf(!runnable)("magic-link sign-in", () => {
+/** The same credential, minted directly, for a project whose mail nobody here can read. */
+async function credentialFromAdmin(
+  admin: SupabaseClient,
+  email: string,
+): Promise<{ token_hash: string }> {
+  const { data, error } = await admin.auth.admin.generateLink({ type: "magiclink", email })
+  if (error) throw new Error(error.message)
+  return { token_hash: data.properties.hashed_token }
+}
+
+describe.skipIf(!configured)("magic-link sign-in", () => {
   let admin: SupabaseClient
   let signingIn: SupabaseClient
   const email = `owner-to-be-${crypto.randomUUID().slice(0, 8)}@example.com`
@@ -74,10 +95,19 @@ describe.skipIf(!runnable)("magic-link sign-in", () => {
     if (userId) await admin.auth.admin.deleteUser(userId)
   })
 
-  it("emails a link that signs someone into a real account", async () => {
-    await sendMagicLink(signingIn.auth, email, "http://127.0.0.1:5173/")
+  it("turns a link request into a real account", async () => {
+    try {
+      await sendMagicLink(signingIn.auth, email, "http://127.0.0.1:5173/")
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (!RATE_LIMITED.test(message)) throw err
+      console.warn(`[magicLink] the project's mailer is rate-limited: ${message}`)
+    }
 
-    const credential = await magicLinkCredential(email)
+    const credential = readsMail
+      ? await credentialFromMail(email)
+      : await credentialFromAdmin(admin, email)
+
     const { data, error } =
       "token_hash" in credential
         ? await signingIn.auth.verifyOtp({ token_hash: credential.token_hash, type: "email" })
