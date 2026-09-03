@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -24,6 +25,8 @@ interface JoinScreenProps {
   connecting: boolean
   error?: string | null
   auth: AuthGateway
+  /** Open this Office's editor. Given only when the person looking owns the Office. */
+  onEdit?: () => void
 }
 
 /**
@@ -40,6 +43,7 @@ export function JoinScreen({
   connecting,
   error,
   auth,
+  onEdit,
 }: JoinScreenProps) {
   const [name, setName] = useState("")
 
@@ -93,6 +97,16 @@ export function JoinScreen({
       </Card>
 
       <AccountSignIn session={auth.session} onRequestLink={auth.requestMagicLink} />
+
+      {/* The Owner's door, alongside the sign-in state rather than instead of it.
+          Authoring is somewhere else entirely — not a mode you switch on while standing in
+          the Office — so it is a way out of this screen, not a control on it. */}
+      {onEdit && (
+        <Button variant="ghost" onClick={onEdit}>
+          <Pencil className="size-4" />
+          Edit this office's layout
+        </Button>
+      )}
     </div>
   )
 }

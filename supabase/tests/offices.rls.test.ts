@@ -1,7 +1,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { createOffice, createOfficeFromName, publishDraft, type Office } from "@/lib/offices"
-import { readPublishedOffice, supabaseOfficeRows } from "@/lib/officeRows"
+import {
+  createOffice,
+  createOfficeFromName,
+  publishDraft,
+  saveDraft,
+  type Office,
+} from "@/lib/offices"
+import { readOwnOffice, readPublishedOffice, supabaseOfficeRows } from "@/lib/officeRows"
 import { slugFrom } from "@/lib/slug"
 import { EXAMPLE_LAYOUT } from "@/office/exampleLayout"
 import type { Layout } from "@/office/layout"
@@ -250,6 +256,77 @@ describe.skipIf(!configured)("offices row-level security", () => {
     expect(error).toBeNull()
 
     expect(await readPublishedOffice(visitor, office.slug)).toBeNull()
+  })
+
+  it("opens the editor for the Owner, draft and all", async () => {
+    // What the editor loads. Nothing in the client decides whether it may — the Owner gets
+    // a row and everybody below gets none, which is the whole of the rule.
+    const office = await anOffice("Editable", EXAMPLE_LAYOUT)
+    const own = await readOwnOffice(owner, office.slug)
+    expect(own).toMatchObject({ id: office.id, name: "Editable" })
+    expect(own?.draft_layout).toEqual(EXAMPLE_LAYOUT)
+  })
+
+  it("opens the editor for nobody else, signed in or not", async () => {
+    const office = await anOffice("Private work")
+    expect(await readOwnOffice(stranger, office.slug)).toBeNull()
+    expect(await readOwnOffice(visitor, office.slug)).toBeNull()
+    expect(await readOwnOffice(asAnon(), office.slug)).toBeNull()
+  })
+
+  it("stores a saved draft and hands it back exactly", async () => {
+    const office = await anOffice("Work in progress", newOfficeLayout())
+    const authored: Layout = {
+      floor: newOfficeLayout().floor,
+      zones: [
+        { id: "spawn", kind: "spawn", rect: { x: 0.3, y: 0.45, w: 0.4, h: 0.1 } },
+        { id: "room-1", kind: "room", private: true, label: "Focus", rect: { x: 0, y: 0, w: 0.5, h: 0.2 } },
+        { id: "table-1", kind: "table", style: "dining", seats: 4, rect: { x: 0.1, y: 0.7, w: 0.3, h: 0.05 } },
+      ],
+    }
+
+    await saveDraft(supabaseOfficeRows(owner), office.id, authored)
+
+    // Reopening is a fresh read, the way coming back tomorrow is.
+    const reopened = await readOwnOffice(owner, office.slug)
+    expect(reopened?.draft_layout).toEqual(authored)
+  })
+
+  it("saves a draft that is not a publishable Office, because a draft may not be one", async () => {
+    // No Spawn Zone: an Office nobody could arrive in. Publishing refuses this; saving a
+    // draft must not, or half-finished work has nowhere to live (CONTEXT.md, Layout).
+    const office = await anOffice("Half done", newOfficeLayout())
+    const noSpawn: Layout = { floor: newOfficeLayout().floor, zones: [] }
+
+    await saveDraft(supabaseOfficeRows(owner), office.id, noSpawn)
+
+    expect((await readOwnOffice(owner, office.slug))?.draft_layout).toEqual(noSpawn)
+    await expect(publishDraft(supabaseOfficeRows(owner), office.id, noSpawn)).rejects.toThrow(
+      /spawn/,
+    )
+  })
+
+  it("leaves what Visitors see alone while a draft is being authored", async () => {
+    const office = await anOffice("Two layouts", EXAMPLE_LAYOUT)
+    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+
+    await saveDraft(supabaseOfficeRows(owner), office.id, {
+      floor: EXAMPLE_LAYOUT.floor,
+      zones: [{ id: "spawn", kind: "spawn", rect: { x: 0.3, y: 0.45, w: 0.4, h: 0.1 } }],
+    })
+
+    const seen = await readPublishedOffice(visitor, office.slug)
+    expect(seen?.published_layout).toEqual(EXAMPLE_LAYOUT)
+  })
+
+  it("does not open the editor for an Office its Owner has deleted", async () => {
+    const office = await anOffice("Gone")
+    await owner
+      .from("offices")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", office.id)
+
+    expect(await readOwnOffice(owner, office.slug)).toBeNull()
   })
 
   it("keeps a deleted Office's slug spent, so its link never resolves elsewhere", async () => {

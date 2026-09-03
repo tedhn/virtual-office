@@ -204,7 +204,8 @@ export function seatFor(layout: Layout, zone: Zone, from: Position, half: number
   return { x: cx, y: maxY }
 }
 
-const DEFAULT_SEATS = 6
+/** Chairs a Table has when its Layout does not say. The editor shows this too. */
+export const DEFAULT_SEATS = 6
 
 /** A chair counts as taken if an occupant is within this multiple of the avatar radius. */
 const SEAT_TAKEN_RADIUS = 1.5

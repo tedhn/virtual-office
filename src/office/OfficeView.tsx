@@ -4,7 +4,10 @@ import { NotFound } from "@/NotFound"
 import { JoinScreen } from "@/JoinScreen"
 import type { AuthGateway } from "@/auth/useAuthSession"
 import type { PublishedOffice } from "@/lib/offices"
+import { isAnonymous } from "@/auth/session"
+import { editPath } from "@/lib/routes"
 import { createClient } from "@/lib/stream"
+import { navigate } from "@/lib/useRoute"
 import { InsideOffice } from "./InsideOffice"
 import { openOfficeCall, type OfficeCall } from "./officeCall"
 import { usePublishedOffice } from "./usePublishedOffice"
@@ -45,7 +48,7 @@ export function OfficeView({ slug, auth }: OfficeViewProps) {
     )
   }
 
-  return <OfficeDoor office={lookup.office} auth={auth} />
+  return <OfficeDoor office={lookup.value} auth={auth} />
 }
 
 /** A Visitor who has been let in: their call, and the name they are wearing. */
@@ -116,6 +119,13 @@ function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGatew
   }, [])
 
   if (!presence) {
+    // Only the Owner is offered the editor, and only when they are signed in as an account
+    // rather than as the anonymous Visitor they also are. This is an offer, not a gate: the
+    // editor's address is guessable, and what stops a stranger opening it is the database
+    // returning them no Office, not this line.
+    const owns =
+      !!auth.session && !isAnonymous(auth.session) && auth.session.user.id === office.owner_id
+
     return (
       <JoinScreen
         officeName={office.name}
@@ -124,6 +134,7 @@ function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGatew
         connecting={connecting}
         error={error ?? auth.error}
         auth={auth}
+        onEdit={owns ? () => navigate(editPath(office.slug)) : undefined}
       />
     )
   }

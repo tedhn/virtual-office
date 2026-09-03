@@ -26,11 +26,12 @@ yet: presence per office is the next piece of work.
 
 ### How it works
 
-- **An office is its URL.** `/` creates one, `/<slug>` renders one, and anything else is a
-  404 — the whole route table is `src/lib/routes.ts`, a pure function over the path, with
-  `useRoute.ts` as the twenty lines that touch the browser. A slug is permanent: it comes
-  from the office's name, is never reassigned, and is checked in the same shape by the
-  client (`src/lib/slug.ts`), the token server and the database.
+- **An office is its URL.** `/` creates one, `/<slug>` renders one, `/<slug>/edit`
+  authors one, and anything else is a 404 — the whole route table is `src/lib/routes.ts`,
+  a pure function over the path, with `useRoute.ts` as the twenty lines that touch the
+  browser. A slug is permanent: it comes from the office's name, is never reassigned, and
+  is checked in the same shape by the client (`src/lib/slug.ts`), the token server and the
+  database.
 - `server/index.mjs` — Express token server (:3001). Mints Stream JWTs; the API secret
   never reaches the browser. It mints only for an office that exists and is published
   (`server/token.mjs`, ADR-0006), which is why it needs Supabase credentials to start.
@@ -67,6 +68,15 @@ yet: presence per office is the next piece of work.
   controls for being one of them. Every office-specific thing arrives as a prop, so there
   is no floorplan and no office id in the file. ("Room" is reserved for a zone inside an
   office — see `CONTEXT.md` — which is why this is not called `OfficeRoom`.)
+- `src/office/editing/` — authoring one, at `/<slug>/edit`: a place an owner goes rather
+  than a mode inside the office, so nothing there touches presence or the published
+  layout. `layoutEdits.ts` is the whole of the editing logic as pure functions from layout
+  to layout, and it holds one invariant — what comes out is always structurally a layout,
+  so an owner's draft always saves however half-finished it is. `EditorFloor.tsx` turns
+  pointer drags into those functions' arguments; `OfficeEditor.tsx` is the screen.
+  Only the owner gets in, and that is the database's answer rather than a check in this
+  code: every policy on `offices` names the owner, so a stranger's query returns no rows
+  (ADR-0005).
 
 ### Identity and offices
 
