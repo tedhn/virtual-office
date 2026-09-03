@@ -47,7 +47,8 @@ function stateOf(meta) {
  * Visitor could stand for hours inside the floorplan their Office had when they arrived.
  * How long a Layout is believed is one decision, and it is `officeLayouts.mjs`'s.
  *
- * Returns a handle with `closeAll()` for graceful shutdown.
+ * Returns a handle: `closeAll()` for graceful shutdown,
+ * plus `visitorCount`/`announceLayout` for what the HTTP side asks about a republished Office.
  */
 export function attachRelay(wss, { layoutFor }) {
   // Office slug -> Set<socket>. Each socket carries its own
@@ -97,8 +98,9 @@ export function attachRelay(wss, { layoutFor }) {
         queued.length = 0
         return
       }
-      // The Layout itself is not kept — this only answers whether there is an Office to
-      // walk into at all. Every message is judged against a Layout asked for afresh.
+      // The Layout is not kept — asking for it answers whether there is an Office to walk
+      // into at all, and every message is judged against one asked for afresh. It is
+      // handed to the newcomer below, and then forgotten here.
       if (!layout) return refuse(CLOSE_NO_OFFICE, "no office is published at that address")
 
       sock.meta = {
@@ -118,7 +120,14 @@ export function attachRelay(wss, { layoutFor }) {
       }
       sockets.add(sock)
 
-      // Send the newcomer a snapshot of everyone already here.
+      // The Floor they have walked onto, and then everyone already standing on it.
+      //
+      // The Layout is sent even though the client loaded one of its own to get here, and
+      // that redundancy is the point: a reconnect is a join, so this is the one path back
+      // to a current Layout for a client that missed the announcement — because the server
+      // holding its socket was not the one told, or because nobody could be told at all.
+      sock.send(JSON.stringify({ t: "layout", layout }))
+
       const peers = []
       for (const other of sockets) {
         if (other !== sock && other.meta) peers.push(stateOf(other.meta))
@@ -248,6 +257,30 @@ export function attachRelay(wss, { layoutFor }) {
     })
   })
 
+  /**
+   * How many Visitors are standing in this Office right now — the sockets that have joined
+   * it, which is what being in an Office consists of. Asked by the publish endpoint, so an
+   * Owner can be told they are about to move somebody's floor out from under them.
+   */
+  function visitorCount(slug) {
+    return offices.get(slug)?.size ?? 0
+  }
+
+  /**
+   * Hand a freshly published Layout to everyone standing in that Office.
+   *
+   * The Layout travels down the socket rather than the clients being told to go and read
+   * it: the server has just read it, and one read fanned out beats one read per person.
+   * It is the same document `offices_public` would hand each of them anyway, and they
+   * check it on arrival the way they check the one they loaded the Office with.
+   *
+   * Nothing here is remembered. The relay still asks `layoutFor` for every message it
+   * judges, so this is a message to the people in the Office and not a cache (ADR-0002).
+   */
+  function announceLayout(slug, layout) {
+    broadcast(slug, null, { t: "layout", layout })
+  }
+
   /** Close every live socket so clients reconnect at once. */
   function closeAll() {
     for (const sockets of offices.values()) {
@@ -261,5 +294,5 @@ export function attachRelay(wss, { layoutFor }) {
     }
   }
 
-  return { closeAll }
+  return { closeAll, visitorCount, announceLayout }
 }

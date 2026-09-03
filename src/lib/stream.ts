@@ -1,9 +1,7 @@
 import { StreamVideoClient, type User } from "@stream-io/video-react-sdk"
+import { apiUrl } from "./api"
 
 const API_KEY = import.meta.env.VITE_STREAM_API_KEY as string | undefined
-// Base URL for the token server. Empty -> same origin (dev proxy / single-service prod).
-// Set VITE_API_URL when the token server is hosted separately from the frontend.
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? ""
 
 interface TokenResponse {
   apiKey: string
@@ -17,7 +15,7 @@ interface TokenResponse {
  * that exists and is published, so a token cannot be had for an Office that isn't there.
  */
 async function fetchToken(userId: string, office: string): Promise<TokenResponse> {
-  const res = await fetch(`${API_BASE}/api/token`, {
+  const res = await fetch(apiUrl("/api/token"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userId, office }),

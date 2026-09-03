@@ -2,6 +2,7 @@
 // geometry — Node strips the types at load, hence the explicit `.ts` extension. See
 // ADR-0004. One implementation of "what an Office's address looks like" for the client,
 // the server and (spelled out separately, because it cannot be shared) the database.
+import { directoryUnreachable, noSuchOffice } from "./officeReplies.mjs"
 import { isSlug } from "../src/lib/slug.ts"
 
 /**
@@ -32,9 +33,7 @@ export function tokenRoute({ apiKey, mintToken, isOfficePublished }) {
     }
     // A slug-shaped address is the only kind an Office can have, so anything else is
     // answered here rather than sent to the database to be told the same thing.
-    if (!isSlug(office)) {
-      return res.status(404).json({ error: "no office is published at that address" })
-    }
+    if (!isSlug(office)) return noSuchOffice(res)
 
     let published
     try {
@@ -42,12 +41,10 @@ export function tokenRoute({ apiKey, mintToken, isOfficePublished }) {
     } catch (err) {
       console.error("office lookup failed:", err)
       // Not 404: we do not know that there is no such Office, only that we cannot ask.
-      return res.status(503).json({ error: "could not reach the office directory" })
+      return directoryUnreachable(res)
     }
 
-    if (!published) {
-      return res.status(404).json({ error: "no office is published at that address" })
-    }
+    if (!published) return noSuchOffice(res)
 
     try {
       return res.json({ apiKey, token: mintToken(userId) })

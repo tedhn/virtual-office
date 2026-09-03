@@ -1,22 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { hitsSolid, roomAt, type Layout } from "./layout"
-import {
-  AVATAR_SIZE,
-  MOVE_SPEED,
-  type Position,
-  type Size,
-} from "./types"
+import { clampToFloor, hitsSolid, legalSpot, roomAt, type Layout } from "./layout"
+import { AVATAR_SIZE, MOVE_SPEED, type Position } from "./types"
 
 const HALF = AVATAR_SIZE / 2
 const SEND_INTERVAL = 33 // ms between position sends while moving (~30 Hz)
 const IDLE_INTERVAL = 1000 // heartbeat while idle so peers/late joiners know our spot
-
-function clamp(pos: Position, floor: Size): Position {
-  return {
-    x: Math.max(HALF, Math.min(floor.width - HALF, pos.x)),
-    y: Math.max(HALF, Math.min(floor.height - HALF, pos.y)),
-  }
-}
 
 // Per-axis collision so movement slides along edges instead of sticking. Solid zones
 // block (skip when already inside one so you can walk back out); Room walls block
@@ -31,7 +19,7 @@ function resolveMove(cur: Position, nx: number, ny: number, layout: Layout): Pos
   const room0 = roomAt(layout, cur)
   if (roomAt(layout, { x: nx, y: cur.y }) !== room0) nx = cur.x
   if (roomAt(layout, { x: nx, y: ny }) !== room0) ny = cur.y
-  return clamp({ x: nx, y: ny }, layout.floor)
+  return clampToFloor(layout, { x: nx, y: ny }, HALF)
 }
 
 const HELD_KEYS: Record<string, [number, number]> = {
@@ -69,7 +57,7 @@ export function useMovement(
   initial: Position,
   layout: Layout,
 ): Movement {
-  const [pos, setPos] = useState<Position>(() => clamp(initial, layout.floor))
+  const [pos, setPos] = useState<Position>(() => clampToFloor(layout, initial, HALF))
   const posRef = useRef<Position>(pos)
   const keys = useRef<Set<string>>(new Set())
   const pointer = useRef<Position>({ x: 0, y: 0 }) // joystick vector, added to key input
@@ -81,14 +69,31 @@ export function useMovement(
   sendRef.current = send
   const layoutRef = useRef(layout)
   layoutRef.current = layout
+  // Where this person arrives in the Office as it stands now — the fallback for a Layout
+  // that has left them nowhere legal to be.
+  const spawnRef = useRef(initial)
+  spawnRef.current = initial
+  // The Layout before this one, which is the only thing that knows which Room this person
+  // walked into of their own accord. Read and replaced in the effect below, not during
+  // render, so a re-render that is not a new Layout cannot lose the comparison.
+  const previousLayout = useRef(layout)
 
-  // On viewport shrink, pull the avatar back inside the new bounds and tell peers.
+  // The Office's Owner has published a new Layout under our feet. Where we were standing
+  // may now be inside a Wall, or inside a Room we never entered — see `legalSpot` for why
+  // neither is somewhere to leave a person. So move to the nearest spot that still is, and
+  // tell peers, keeping whichever Room we were in before this Layout arrived.
+  //
+  // Nowhere near us being legal means the whole area has been built over; the Spawn Zone
+  // is then the honest answer, because it is where we would arrive if we walked in now.
   useEffect(() => {
-    const clamped = clamp(posRef.current, layout.floor)
-    if (clamped.x !== posRef.current.x || clamped.y !== posRef.current.y) {
-      posRef.current = clamped
-      setPos(clamped)
-      sendRef.current(clamped.x, clamped.y)
+    const before = previousLayout.current
+    previousLayout.current = layout
+    const ourRoom = roomAt(before, posRef.current)
+    const legal = legalSpot(layout, posRef.current, HALF, ourRoom) ?? spawnRef.current
+    if (legal.x !== posRef.current.x || legal.y !== posRef.current.y) {
+      posRef.current = legal
+      setPos(legal)
+      sendRef.current(legal.x, legal.y)
     }
   }, [layout])
 
@@ -198,7 +203,7 @@ export function useMovement(
 
   const teleport = useCallback((to: Position) => {
     target.current = null
-    const next = clamp(to, layoutRef.current.floor)
+    const next = clampToFloor(layoutRef.current, to, HALF)
     posRef.current = next
     setPos(next)
     lastSend.current = 0 // force the next tick to broadcast the new spot
@@ -206,7 +211,7 @@ export function useMovement(
   }, [])
 
   const walkTo = useCallback((to: Position) => {
-    target.current = clamp(to, layoutRef.current.floor)
+    target.current = clampToFloor(layoutRef.current, to, HALF)
   }, [])
 
   // On-screen joystick feeds a vector into the same rAF loop the keyboard uses, so collision,

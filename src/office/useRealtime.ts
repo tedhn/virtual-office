@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react"
+import type { Layout } from "./layout"
+import { validateLayout } from "./layoutSchema"
 import { CLOSE_NO_OFFICE } from "./relayClose"
 import type { Position } from "./types"
 
@@ -49,20 +51,35 @@ function wsUrl(): string {
  * `officeSlug` is the Office's channel on the relay, and the relay refuses any slug no
  * published Office answers to — so the socket is per Office, and peers never cross from
  * one to another.
+ *
+ * `handlers.onLayout` is how an Owner publishing reaches the people already inside: the
+ * server pushes the Layout it has just read, rather than telling everyone to go and read it
+ * for themselves. It also fires on arrival and on every reconnect, which is what makes the
+ * reconnect loop below a backstop for an announcement that never landed. The Layout is
+ * checked here before it is handed on, for the same reason the one loaded from the database
+ * is — a document off a socket is not a Layout until something says so, and the renderer
+ * indexes into rects.
  */
+export interface RealtimeHandlers {
+  /** A chat message the server has decided we are entitled to see. */
+  onChat?: (m: ChatMessage) => void
+  /** The Layout this Office is on now, on arrival and whenever it is republished. */
+  onLayout?: (layout: Layout) => void
+}
+
 export function useRealtime(
   officeSlug: string,
   userId: string,
   name: string,
-  onChat?: (m: ChatMessage) => void,
+  handlers: RealtimeHandlers = {},
 ): Realtime {
   const targetsRef = useRef<Map<string, PeerState>>(new Map())
   const sockRef = useRef<WebSocket | null>(null)
-  // Kept in a ref so a changing handler doesn't tear down and reopen the socket.
-  // Updated in an effect (not during render) to keep render pure.
-  const onChatRef = useRef(onChat)
+  // Kept in a ref so changing handlers don't tear down and reopen the socket. Updated in an
+  // effect (not during render) to keep render pure.
+  const handlersRef = useRef(handlers)
   useEffect(() => {
-    onChatRef.current = onChat
+    handlersRef.current = handlers
   })
 
   useEffect(() => {
@@ -99,7 +116,14 @@ export function useRealtime(
         } else if (m.t === "leave") {
           targetsRef.current.delete(m.id)
         } else if (m.t === "chat") {
-          onChatRef.current?.({ id: m.id, name: m.name, text: m.text, room: m.room ?? null })
+          handlersRef.current.onChat?.({ id: m.id, name: m.name, text: m.text, room: m.room ?? null })
+        } else if (m.t === "layout") {
+          // Arrival, a reconnect, or the Owner having just published. A document we
+          // cannot read is not a floor to put anybody on, so the one already being stood on
+          // stays until a readable one arrives — which the next reconnect will bring.
+          const layout = validateLayout(m.layout)
+          if (layout.ok) handlersRef.current.onLayout?.(layout.layout)
+          else console.error("the relay sent a layout that is not a Layout:", layout.errors)
         }
       }
 

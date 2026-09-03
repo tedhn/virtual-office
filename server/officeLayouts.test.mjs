@@ -103,6 +103,51 @@ describe("The Layout the relay enforces privacy against", () => {
     expect(complaints[0][1].length).toBeGreaterThan(0)
   })
 
+  it("asks again for an Office it has been told to forget", async () => {
+    // Publishing replaces the Layout privacy is enforced against, and the Owner's browser
+    // says so the moment it happens — which beats waiting out the clock (ADR-0002).
+    const fetchLayout = vi.fn(async () => A_LAYOUT)
+    const layouts = officeLayouts({ fetchLayout })
+
+    await layouts.layoutFor("acme-hq")
+    layouts.forget("acme-hq")
+    await layouts.layoutFor("acme-hq")
+
+    expect(fetchLayout).toHaveBeenCalledTimes(2)
+  })
+
+  it("forgets one Office without forgetting the others", async () => {
+    const fetchLayout = vi.fn(async () => A_LAYOUT)
+    const layouts = officeLayouts({ fetchLayout })
+
+    await layouts.layoutFor("acme-hq")
+    await layouts.layoutFor("beta-co")
+    layouts.forget("acme-hq")
+    await layouts.layoutFor("beta-co")
+
+    expect(fetchLayout).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not let a fetch that was already in flight write back over a forget", async () => {
+    // The Owner publishes while a chat message is being judged. The fetch already running
+    // predates the publish, so its answer must not become the remembered one — otherwise
+    // telling the relay about a publish would leave it more stale than saying nothing.
+    const released = []
+    const before = { ...A_LAYOUT, zones: [] }
+    const fetchLayout = vi.fn(() => new Promise((resolve) => released.push(resolve)))
+    const layouts = officeLayouts({ fetchLayout })
+
+    const inFlight = layouts.layoutFor("acme-hq")
+    layouts.forget("acme-hq")
+    const after = layouts.layoutFor("acme-hq")
+
+    released[0](before)
+    released[1](A_LAYOUT)
+    expect(await inFlight).toEqual(before)
+    expect(await after).toEqual(A_LAYOUT)
+    expect(await layouts.layoutFor("acme-hq")).toEqual(A_LAYOUT)
+  })
+
   it("does not grow without limit as strangers ask for addresses that do not exist", async () => {
     const time = clock()
     const layouts = officeLayouts({ fetchLayout: async () => null, ttlMs: 100, now: time.now })

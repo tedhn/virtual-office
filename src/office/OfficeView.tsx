@@ -9,6 +9,7 @@ import { editPath } from "@/lib/routes"
 import { createClient } from "@/lib/stream"
 import { navigate } from "@/lib/useRoute"
 import { InsideOffice } from "./InsideOffice"
+import type { Layout } from "./layout"
 import { openOfficeCall, type OfficeCall } from "./officeCall"
 import { usePublishedOffice } from "./usePublishedOffice"
 
@@ -66,6 +67,11 @@ interface Presence {
  * which is why there is no unload handler here pretending to do it more tidily.
  */
 function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGateway }) {
+  // The Layout being stood on right now. It starts as the one this Office was loaded with
+  // and is replaced when its Owner publishes: the relay hands the new one down the socket
+  // rather than everyone inside going back to the database for it (see `useRealtime`).
+  // Held here rather than inside, because it is the Office's, not the standing-in-it's.
+  const [layout, setLayout] = useState<Layout>(office.published_layout)
   const [presence, setPresence] = useState<Presence | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -129,7 +135,7 @@ function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGatew
     return (
       <JoinScreen
         officeName={office.name}
-        layout={office.published_layout}
+        layout={layout}
         onJoin={(name) => void join(name)}
         connecting={connecting}
         error={error ?? auth.error}
@@ -143,12 +149,13 @@ function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGatew
     <StreamVideo client={presence.call.client}>
       <StreamCall call={presence.call.call}>
         <InsideOffice
-          layout={office.published_layout}
+          layout={layout}
           officeSlug={office.slug}
           officeName={office.name}
           localUserId={presence.userId}
           localName={presence.name}
           onLeave={leave}
+          onRepublished={setLayout}
         />
       </StreamCall>
     </StreamVideo>

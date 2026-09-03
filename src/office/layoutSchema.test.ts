@@ -197,6 +197,106 @@ describe("Publishing a Layout", () => {
       errors: ["layout: expected an object"],
     })
   })
+
+  it("rejects a Zone that runs off the Floor", () => {
+    const zones = [spawn, { id: "w", kind: "wall", rect: { x: 0.9, y: 0.1, w: 0.2, h: 0.1 } }]
+    expect(validatePublishableLayout({ floor: FLOOR, zones })).toEqual({
+      ok: false,
+      errors: ["zones[1].rect: runs past the right edge of the floor (x + w must be <= 1)"],
+    })
+  })
+})
+
+describe("Rooms that overlap", () => {
+  const spawn = { id: "spawn", kind: "spawn", rect: { x: 0.0, y: 0.9, w: 0.1, h: 0.1 } }
+  const roomAt = (id: string, x: number) => ({
+    id,
+    kind: "room",
+    rect: { x, y: 0.1, w: 0.3, h: 0.3 },
+  })
+
+  it("refuses to publish two Rooms sharing floor, naming both", () => {
+    const zones = [spawn, roomAt("meeting", 0.1), roomAt("booth", 0.3)]
+    expect(validatePublishableLayout({ floor: FLOOR, zones })).toEqual({
+      ok: false,
+      errors: [
+        'zones: rooms "meeting" and "booth" overlap — a point on the Floor must be inside one Room or none, never two',
+      ],
+    })
+  })
+
+  it("allows two Rooms that share a wall but no floor", () => {
+    const zones = [spawn, roomAt("meeting", 0.1), roomAt("booth", 0.4)]
+    expect(validatePublishableLayout({ floor: FLOOR, zones }).ok).toBe(true)
+  })
+
+  it("names every overlapping pair, not just the first", () => {
+    const zones = [spawn, roomAt("a", 0.1), roomAt("b", 0.2), roomAt("c", 0.3)]
+    const result = validatePublishableLayout({ floor: FLOOR, zones })
+    expect(result.ok).toBe(false)
+    expect(result.ok === false && result.errors).toHaveLength(3)
+  })
+
+  it("does not object to a Room overlapping something that is not a Room", () => {
+    const zones = [spawn, roomAt("meeting", 0.1), { id: "w", kind: "wall", rect: { x: 0.2, y: 0.2, w: 0.1, h: 0.1 } }]
+    expect(validatePublishableLayout({ floor: FLOOR, zones }).ok).toBe(true)
+  })
+})
+
+describe("Where Visitors arrive", () => {
+  const spawn = { id: "spawn", kind: "spawn", rect: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 } }
+  const solid = (id: string, kind: string) => ({
+    id,
+    kind,
+    rect: { x: 0.3, y: 0.3, w: 0.3, h: 0.3 },
+  })
+
+  it("refuses a Spawn over a Wall, naming both", () => {
+    const zones = [spawn, solid("divider", "wall")]
+    expect(validatePublishableLayout({ floor: FLOOR, zones })).toEqual({
+      ok: false,
+      errors: [
+        'zones: the spawn Zone "spawn" overlaps the wall "divider" — Visitors would arrive inside it',
+      ],
+    })
+  })
+
+  it("refuses a Spawn over a Table", () => {
+    const zones = [spawn, solid("desk", "table")]
+    expect(validatePublishableLayout({ floor: FLOOR, zones })).toEqual({
+      ok: false,
+      errors: [
+        'zones: the spawn Zone "spawn" overlaps the table "desk" — Visitors would arrive inside it',
+      ],
+    })
+  })
+
+  it("refuses a Spawn over the Exterior, which is solid for the same reason", () => {
+    const zones = [spawn, solid("outside", "exterior")]
+    expect(validatePublishableLayout({ floor: FLOOR, zones })).toEqual({
+      ok: false,
+      errors: [
+        'zones: the spawn Zone "spawn" overlaps the exterior "outside" — Visitors would arrive inside it',
+      ],
+    })
+  })
+
+  it("refuses a Spawn too small for an Avatar to arrive in", () => {
+    // 900 x 2000 floor, so 0.01 across is 9px and an Avatar is 44px. Arrivals would stack
+    // on its middle and hang over its edges, which is how one lands inside a neighbour.
+    const pinhole = { id: "spawn", kind: "spawn", rect: { x: 0.1, y: 0.1, w: 0.01, h: 0.3 } }
+    expect(validatePublishableLayout({ floor: FLOOR, zones: [pinhole] })).toEqual({
+      ok: false,
+      errors: [
+        'zones: the spawn Zone "spawn" is 9x600px, too small for anyone to arrive in (44px across at least)',
+      ],
+    })
+  })
+
+  it("allows a Spawn inside a Room, which is walkable", () => {
+    const zones = [spawn, { id: "lobby", kind: "room", rect: { x: 0.0, y: 0.0, w: 0.6, h: 0.6 } }]
+    expect(validatePublishableLayout({ floor: FLOOR, zones }).ok).toBe(true)
+  })
 })
 
 describe("Whole-pixel Floor dimensions", () => {

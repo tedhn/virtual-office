@@ -37,14 +37,14 @@ What is load-bearing here is *who evaluates the position*, not which key was use
 the rectangles. A service-role key would have added a credential that bypasses row-level
 security to a process that has no row it is entitled to read and a Visitor is not.
 
-## Amendment: the cache expires on a clock, not on a publish
+## Amendment: the cache is invalidated on a publish, with the clock underneath it
 
-The cache described above is `server/officeLayouts.mjs`, and it forgets a Layout after a
-fixed interval rather than being told when one is republished. Invalidating on publish is
-still the right answer and is still owed; it needs a channel from the browser that
-publishes to whichever server process holds the socket, and there is no publishing UI to
-hang that off yet. Until there is, the window in which the relay can be enforcing a
-superseded Layout is bounded by that interval.
+The cache described above is `server/officeLayouts.mjs`. It was first written to forget a
+Layout only after a fixed interval; a publish now tells it directly, over the channel from
+the publishing browser this amendment used to say was owed (ADR-0007). The interval
+remains, as the backstop for a publish that could not reach the server and for a process
+that was not the one told — so the window in which the relay can be enforcing a superseded
+Layout is still bounded by it, rather than depending on the announcement arriving.
 
 For that bound to be real, that cache has to be the only one. The relay therefore keeps no
 Layout of its own and asks for one per message it judges — a resolved promise on a cache

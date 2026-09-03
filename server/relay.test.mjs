@@ -52,6 +52,9 @@ function relayHarness(layoutFor) {
   const listening = new Promise((resolve) => httpServer.listen(0, "127.0.0.1", resolve))
 
   const harness = {
+    /** The relay's own handle — what the HTTP side of the server holds. */
+    handle: relay,
+
     /** Connect a Visitor, join an Office and (unless told otherwise) report a position. */
     async visitor(id, pos, office = "office-test") {
       await listening
@@ -71,6 +74,7 @@ function relayHarness(layoutFor) {
         send: (m) => sock.send(JSON.stringify(m)),
         chats: () => received.filter((m) => m.t === "chat"),
         states: () => received.filter((m) => m.t === "state"),
+        layouts: () => received.filter((m) => m.t === "layout").map((m) => m.layout),
       }
       clients.push(client)
       client.send({ t: "join", office, id, name: id })
@@ -331,13 +335,80 @@ describe("Which Office's Layout privacy is judged against", () => {
   })
 })
 
+describe("Telling an Office its Layout has been republished", () => {
+  it("counts the Visitors standing in one Office, and nobody from another", async () => {
+    const relay = exampleRelay()
+    await relay.visitor("alice", ON_FLOOR, "office-one")
+    await relay.visitor("bob", ALSO_ON_FLOOR, "office-one")
+    await relay.visitor("carol", ON_FLOOR, "office-two")
+    await settle()
+
+    expect(relay.handle.visitorCount("office-one")).toBe(2)
+    expect(relay.handle.visitorCount("office-two")).toBe(1)
+    expect(relay.handle.visitorCount("office-test")).toBe(0)
+  })
+
+  it("hands the new Layout to everyone standing in that Office", async () => {
+    const relay = exampleRelay()
+    const alice = await relay.visitor("alice", ON_FLOOR, "office-one")
+    const bob = await relay.visitor("bob", ALSO_ON_FLOOR, "office-one")
+    await settle()
+
+    relay.handle.announceLayout("office-one", OTHER_LAYOUT)
+    await settle()
+
+    // The one each of them was handed on the way in, then the one just published.
+    for (const client of [alice, bob]) {
+      expect(client.layouts()).toEqual([EXAMPLE_LAYOUT, OTHER_LAYOUT])
+    }
+  })
+
+  it("does not hand it to the people in a different Office", async () => {
+    const relay = exampleRelay()
+    const alice = await relay.visitor("alice", ON_FLOOR, "office-one")
+    const carol = await relay.visitor("carol", ON_FLOOR, "office-two")
+    await settle()
+
+    relay.handle.announceLayout("office-one", OTHER_LAYOUT)
+    await settle()
+
+    expect(alice.layouts()).toEqual([EXAMPLE_LAYOUT, OTHER_LAYOUT])
+    // Carol has only ever been handed the one she arrived on.
+    expect(carol.layouts()).toEqual([EXAMPLE_LAYOUT])
+  })
+
+  it("hands the Layout to a Visitor as they arrive", async () => {
+    // The one path back to a current Layout when an announcement never landed — a server
+    // that was not the one told, or a browser that could not reach it. A reconnect is a
+    // join, so this is also what makes the client's reconnect loop a backstop.
+    const relay = exampleRelay()
+    const alice = await relay.visitor("alice", ON_FLOOR, "office-one")
+    await settle()
+
+    expect(alice.layouts()).toEqual([EXAMPLE_LAYOUT])
+  })
+
+  it("hands nothing to a Visitor it turns away", async () => {
+    const relay = exampleRelay()
+    const stray = await relay.visitor("stray", ON_FLOOR, "not-an-office")
+    await settle()
+
+    expect(stray.received).toEqual([])
+  })
+
+  it("shrugs at an Office nobody is standing in", () => {
+    const relay = exampleRelay()
+    expect(() => relay.handle.announceLayout("office-one", OTHER_LAYOUT)).not.toThrow()
+  })
+})
+
 describe("Shared modules loaded from source", () => {
   const run = promisify(execFile)
 
   // Every server module that imports TypeScript from `src/`: the relay for the geometry
-  // and the close codes, the Layout cache for the schema, the token route for the slug
-  // shape. Add to this list whenever another server module starts doing the same.
-  for (const module of ["./relay.mjs", "./officeLayouts.mjs", "./token.mjs"]) {
+  // and the close codes, the Layout cache for the schema, the token and publishing routes
+  // for the slug shape. Add to this list whenever another server module starts doing the same.
+  for (const module of ["./relay.mjs", "./officeLayouts.mjs", "./token.mjs", "./publishing.mjs"]) {
     it(`loads ${module} in plain Node, the way the server actually starts`, async () => {
       // Vitest resolves extensionless imports through Vite; plain Node does not. A runtime
       // import inside the shared graph that loses its `.ts` passes every test above and

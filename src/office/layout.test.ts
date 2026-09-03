@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { EXAMPLE_LAYOUT } from "./exampleLayout"
 import {
   hitsSolid,
+  legalSpot,
   roomAt,
   roomContextAt,
   seatSlots,
@@ -243,5 +244,70 @@ describe("Spawn", () => {
       expect(hitsSolid(EXAMPLE_LAYOUT, p, HALF)).toBe(false)
       expect(roomAt(EXAMPLE_LAYOUT, p)).toBeNull()
     }
+  })
+})
+
+describe("Standing somewhere legal after a Layout changes underneath you", () => {
+  /** A wall straight down the middle of the test floor: 400..600 across, full height. */
+  const wall: Zone = { id: "w", kind: "wall", rect: { x: 0.4, y: 0, w: 0.2, h: 1 } }
+
+  it("leaves a position that is already legal exactly where it is", () => {
+    const layout = layoutOf(wall)
+    expect(legalSpot(layout, { x: 200, y: 500 }, HALF, null)).toEqual({ x: 200, y: 500 })
+  })
+
+  it("pulls a position off the Floor back onto it", () => {
+    expect(legalSpot(layoutOf(), { x: -50, y: 5000 }, HALF, null)).toEqual({
+      x: HALF,
+      y: 1000 - HALF,
+    })
+  })
+
+  it("pushes someone standing inside a Wall out of it", () => {
+    const layout = layoutOf(wall)
+    const spot = legalSpot(layout, { x: 450, y: 500 }, HALF, null)
+    expect(spot).not.toBeNull()
+    expect(hitsSolid(layout, spot!, HALF)).toBe(false)
+  })
+
+  it("pushes them out by the nearest side, not across the Zone", () => {
+    const layout = layoutOf(wall)
+    // 450 is nearer the wall's left edge (400) than its right (600).
+    expect(legalSpot(layout, { x: 450, y: 500 }, HALF, null)!.x).toBeLessThan(400)
+  })
+
+  it("keeps the axis it does not have to move on", () => {
+    const layout = layoutOf(wall)
+    expect(legalSpot(layout, { x: 450, y: 730 }, HALF, null)!.y).toBe(730)
+  })
+
+  it("reports no spot when every way out is solid too", () => {
+    const everywhere: Zone = { id: "x", kind: "exterior", rect: { x: 0, y: 0, w: 1, h: 1 } }
+    expect(legalSpot(layoutOf(everywhere), { x: 500, y: 500 }, HALF, null)).toBeNull()
+  })
+
+  it("leaves someone where they are in the Room they walked into", () => {
+    const layout = layoutOf(room("C"))
+    expect(legalSpot(layout, { x: 400, y: 400 }, HALF, "C")).toEqual({ x: 400, y: 400 })
+  })
+
+  it("moves someone out of a Room published around them", () => {
+    // They never walked in, and every Room blocks wall-crossing — so left inside it they
+    // are stuck, and in a private Room's Room-context without having joined.
+    const layout = layoutOf(room("C"))
+    const spot = legalSpot(layout, { x: 400, y: 400 }, HALF, null)
+    expect(spot).not.toBeNull()
+    expect(roomAt(layout, spot!)).toBeNull()
+  })
+
+  it("does not move someone whose Room has been deleted out from under them", () => {
+    // Being put on the open Floor is a fine place to end up; only being put *inside* a
+    // Room is the thing to undo.
+    expect(legalSpot(layoutOf(), { x: 400, y: 400 }, HALF, "C")).toEqual({ x: 400, y: 400 })
+  })
+
+  it("leaves someone in their own Room when its walls have moved", () => {
+    const grown: Zone = { ...room("C"), rect: { x: 0.1, y: 0.1, w: 0.6, h: 0.6 } }
+    expect(legalSpot(layoutOf(grown), { x: 400, y: 400 }, HALF, "C")).toEqual({ x: 400, y: 400 })
   })
 })

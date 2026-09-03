@@ -5,8 +5,9 @@ import type { AuthGateway } from "@/auth/useAuthSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { saveDraft, type Office } from "@/lib/offices"
+import { publishDraft, saveDraft, type Office } from "@/lib/offices"
 import { supabaseOfficeRows } from "@/lib/officeRows"
+import { announcePublished, visitorsInside } from "@/lib/publishing"
 import { officePath } from "@/lib/routes"
 import { supabase } from "@/lib/supabase"
 import { navigate } from "@/lib/useRoute"
@@ -35,9 +36,8 @@ const PALETTE: { kind: ZoneKind; label: string; hint: string }[] = [
  *
  * Its own address (`/<slug>/edit`) rather than a mode inside the Office, because it is its
  * own place: an Owner here is not present in their Office, has no avatar and no call, and
- * nothing they do is visible to anyone standing in it. Publishing — the moment a draft
- * becomes what Visitors walk into — is not here either; this screen only ever writes the
- * draft column.
+ * nothing they do is visible to anyone standing in it — until they publish, which is the
+ * one thing done from this screen that anybody else can see.
  */
 export function OfficeEditor({ slug, auth }: OfficeEditorProps) {
   const lookup = useDraftOffice(slug, auth.session?.user.id ?? null)
@@ -85,12 +85,15 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
   const [saved, setSaved] = useState<Layout>(draft)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const unsaved = layout !== saved
   const selected = layout.zones.find((z) => z.id === selectedId) ?? null
-  // A draft is allowed to be an Office nobody could use, so this is said rather than
-  // enforced: what publishing would refuse today, with the save button working regardless.
+  // A draft is allowed to be an Office nobody could use, so for the Save button this is
+  // said rather than enforced. For Publish it is the gate: this is exactly the check the
+  // write would fail, run here so its reasons can be read rather than thrown.
   const publishable = validatePublishableLayout(layout)
 
   const drop = (kind: ZoneKind) => {
@@ -154,6 +157,54 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
     }
   }
 
+  /**
+   * Publish: hand this draft to everyone who walks in, and to everyone already inside.
+   *
+   * The Owner is asked first when there are people in there, because publishing moves the
+   * floor under them — anybody standing where a Wall has just gone is picked up and put
+   * somewhere they can stand. Not being able to ask is itself worth asking about: a silent
+   * publish onto a room full of people is the outcome the question exists to prevent.
+   *
+   * Telling the server afterwards is the last step and the only one allowed to fail
+   * quietly. The Office is published the moment the row is written; what the announcement
+   * decides is whether the people already inside are handed the new Floor now or go on
+   * seeing the old one until their connection next re-establishes (ADR-0007).
+   */
+  const publish = async () => {
+    if (publishing || !publishable.ok) return
+    setPublishing(true)
+    setError(null)
+    setNotice(null)
+    const attempt = layout
+    try {
+      const question = await disruptionQuestion(office.slug)
+      if (question && !window.confirm(question)) return
+
+      await publishDraft(supabaseOfficeRows(supabase()), office.id, attempt)
+      setSaved(attempt)
+
+      try {
+        const told = await announcePublished(office.slug)
+        setNotice(
+          told === 0
+            ? "Published. This is what people walk into now."
+            : `Published, and handed to the ${people(told)} already inside.`,
+        )
+      } catch (err) {
+        console.error(err)
+        // The row is written, so the Office is published. What failed is the telling.
+        setNotice(
+          "Published — but the office server could not be told, so anyone already inside " +
+            "stays on the old layout until they reload.",
+        )
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not publish this office")
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   return (
     <div className="flex h-svh flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
@@ -170,14 +221,40 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
           <Button variant="secondary" onClick={leave}>
             Back to the office
           </Button>
-          <Button onClick={() => void save()} disabled={saving || !unsaved}>
+          <Button variant="secondary" onClick={() => void save()} disabled={saving || !unsaved}>
             {saving ? "Saving…" : "Save draft"}
+          </Button>
+          <Button onClick={() => void publish()} disabled={publishing || !publishable.ok}>
+            {publishing ? "Publishing…" : "Publish"}
           </Button>
         </div>
       </header>
 
+      {/* Why publishing is refused, in full and by name. An Owner cannot act on "this
+          layout is invalid", and the draft saves either way — so this says what is wrong
+          rather than standing in the way of the work. */}
+      {!publishable.ok && (
+        <div className="border-b px-4 py-2">
+          <p className="text-sm font-medium">Not ready to publish</p>
+          <ul className="text-muted-foreground list-disc pl-5 text-xs">
+            {publishable.errors.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <p className="text-muted-foreground pt-1 text-xs">
+            A draft is allowed to be like this, and still saves.
+          </p>
+        </div>
+      )}
+
       {error && (
         <p className="text-destructive border-b px-4 py-2 text-sm">{error}</p>
+      )}
+
+      {/* Gone the moment the Owner edits again, so it never claims that what is on screen
+          is what Visitors are walking into. */}
+      {notice && !unsaved && (
+        <p className="text-muted-foreground border-b px-4 py-2 text-sm">{notice}</p>
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[13rem_1fr_15rem]">
@@ -193,12 +270,6 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
               <span className="text-muted-foreground block text-xs">{hint}</span>
             </button>
           ))}
-          {!publishable.ok && (
-            <p className="text-muted-foreground mt-2 text-xs">
-              Not ready to publish yet: {publishable.errors.join("; ")}. A draft is allowed to
-              be, and this still saves.
-            </p>
-          )}
         </section>
 
         <section className="min-h-0">
@@ -226,6 +297,30 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
       </div>
     </div>
   )
+}
+
+/**
+ * What to ask the Owner before publishing, or null when there is nothing to ask about.
+ *
+ * Only people currently standing in the Office are a reason to stop and ask — publishing
+ * onto an empty Floor disrupts nobody. Not being able to find out counts as a reason too:
+ * the point of the question is that a publish never surprises a room full of people, and
+ * an unanswered question is not the same as a "no".
+ */
+async function disruptionQuestion(slug: string): Promise<string | null> {
+  let visitors: number
+  try {
+    visitors = await visitorsInside(slug)
+  } catch {
+    return "We couldn't check whether anyone is in the office right now. Publish anyway?"
+  }
+  if (visitors === 0) return null
+  return `Publishing now moves the ${people(visitors)} in the office onto the new layout straight away, and anyone standing where you've put something solid will be moved to where they can stand. Publish anyway?`
+}
+
+/** A count of people, said the way a person would. */
+function people(n: number): string {
+  return n === 1 ? "one person" : `${n} people`
 }
 
 /**

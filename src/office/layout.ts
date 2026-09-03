@@ -98,13 +98,28 @@ export function roomAt(layout: Layout, pos: Position): string | null {
 }
 
 /**
+ * Whether a Zone is something an Avatar cannot stand in. Tables, Walls and the Exterior
+ * are solid; a Room is enclosed but walkable (its walls are crossed by Join/Leave rather
+ * than by collision), and the Spawn Zone is ordinary Floor.
+ */
+export const isSolidZone = (zone: Zone) => zone.kind !== "room" && zone.kind !== "spawn"
+
+/**
+ * Do two rects share any Floor at all? Touching edges do not count: two Rooms placed
+ * against each other share a wall, not a spot somebody could stand in both of.
+ */
+export function rectsOverlap(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+}
+
+/**
  * True if an avatar of radius `half` centered at `pos` overlaps a solid zone. Tables,
  * walls and the exterior are solid; Rooms use wall-crossing rules instead, and the Spawn
  * Zone is ordinary walkable floor.
  */
 export function hitsSolid(layout: Layout, pos: Position, half: number): boolean {
   for (const z of layout.zones) {
-    if (z.kind === "room" || z.kind === "spawn") continue
+    if (!isSolidZone(z)) continue
     const r = rectToPx(z.rect, layout.floor)
     if (
       pos.x > r.left - half &&
@@ -135,6 +150,85 @@ export function spawnPoint(layout: Layout, userId: string, half: number): Positi
     x: r.left + insetX + ((h % 1000) / 1000) * (r.width - insetX * 2),
     y: r.top + insetY + (((h >>> 10) % 1000) / 1000) * (r.height - insetY * 2),
   }
+}
+
+/** `pos` pulled inside the Floor, far enough in that the whole Avatar fits on it. */
+export function clampToFloor(layout: Layout, pos: Position, half: number): Position {
+  const { width, height } = layout.floor
+  return {
+    x: Math.max(half, Math.min(width - half, pos.x)),
+    y: Math.max(half, Math.min(height - half, pos.y)),
+  }
+}
+
+/**
+ * The nearest spot to `pos` an Avatar may stand on this Layout, or null when there is
+ * nowhere near it to go. Somewhere on the Floor, inside nothing solid, and inside no Room
+ * but `room` — the Room this Avatar walked into, which they are entitled to still be in.
+ *
+ * Publishing is why this exists: a Layout replaced under someone's feet can leave them
+ * where they may not be, having done nothing themselves. Both ways that happens are worth
+ * spelling out, because they go wrong differently.
+ *
+ * Left inside a Table or a Wall, an Avatar is not stuck — `resolveMove` lets you walk out
+ * of a solid Zone you are already inside — but until they leave it, collision is switched
+ * off for them entirely and they walk through every other solid thing on the Floor.
+ *
+ * Left inside a Room they never entered, an Avatar *is* stuck: every Room blocks
+ * wall-crossing in both directions, so only the Leave button gets them out. Worse, if it
+ * is a private Room they are in its Room-context meanwhile — hearing it and heard by it
+ * without ever having joined. Which Room somebody is in must be something they did.
+ *
+ * The search is deliberately short-sighted — the four ways straight out of each Zone in
+ * the way, nearest first, and nothing further. An Avatar boxed in on every side is
+ * answered with null rather than with a walk of the whole Floor, because the caller has a
+ * better answer for that case than geometry does: the Spawn Zone, where they would arrive.
+ */
+export function legalSpot(
+  layout: Layout,
+  pos: Position,
+  half: number,
+  room: string | null,
+): Position | null {
+  // Leaving a Room is nothing to correct — a Room deleted under you puts you on the open
+  // Floor, which is a fine place to be. Being *put inside* one is the thing to undo.
+  const standable = (p: Position) => {
+    if (hitsSolid(layout, p, half)) return false
+    const inside = roomAt(layout, p)
+    return inside === null || inside === room
+  }
+
+  const onFloor = clampToFloor(layout, pos, half)
+  if (standable(onFloor)) return onFloor
+
+  // Far enough past the edge that both tests, which are strict about their own bounds,
+  // agree we are out.
+  const gap = half + 1
+  let best: Position | null = null
+  let bd = Infinity
+  for (const z of layout.zones) {
+    const inTheWay = isSolidZone(z) || (z.kind === "room" && z.id !== room)
+    if (!inTheWay) continue
+    const r = rectToPx(z.rect, layout.floor)
+    const ways = [
+      { x: r.left - gap, y: onFloor.y },
+      { x: r.left + r.width + gap, y: onFloor.y },
+      { x: onFloor.x, y: r.top - gap },
+      { x: onFloor.x, y: r.top + r.height + gap },
+    ]
+    for (const way of ways) {
+      const spot = clampToFloor(layout, way, half)
+      // Stepping out of one Zone can land inside another; only a spot clear of everything
+      // counts, which is also what makes a Zone this Avatar is not in harmless here.
+      if (!standable(spot)) continue
+      const d = Math.hypot(spot.x - onFloor.x, spot.y - onFloor.y)
+      if (d < bd) {
+        bd = d
+        best = spot
+      }
+    }
+  }
+  return best
 }
 
 const EPS = 1e-6

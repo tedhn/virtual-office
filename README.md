@@ -21,8 +21,9 @@ pair, and refuses to start without it: it has to be able to tell a real office f
 invented one before it mints anything (ADR-0006).
 
 Sign in with an email link, name an office, and you land on it at its own URL — an empty
-floor with a single spawn zone, and a link you can share. Nobody can walk around on it
-yet: presence per office is the next piece of work.
+floor with a single spawn zone, and a link you can share. Author it at `/<slug>/edit`, and
+publish when it holds together: publishing is what visitors walk into, and what the server
+enforces privacy against.
 
 ### How it works
 
@@ -44,7 +45,15 @@ yet: presence per office is the next piece of work.
   real socket server and covers the isolation rules.
 - `server/officeLayouts.mjs` — where the relay gets those layouts: one per office, fetched
   from `offices_public` and remembered for 30 seconds. The relay keeps no copy of its own,
-  so that interval is the whole of how stale enforcement can get (ADR-0002).
+  so that interval is the whole of how stale enforcement can get (ADR-0002). Publishing
+  cuts it short by saying so: `server/publishing.mjs` is the pair of endpoints an owner's
+  browser calls around a publish — how many visitors are standing in the office (so it can
+  warn them first) and the nudge that drops the cached layout and pushes the new one down
+  every socket in that office (ADR-0007). Neither is an identity check, for the reason
+  ADR-0006 gives about the endpoint beside them; `server/officeReplies.mjs` is the two
+  answers all three routes share, so they cannot drift on what a 404 and a 503 mean.
+  The relay also hands a layout to anyone joining, which is what makes its reconnect loop
+  the backstop for a nudge that never arrived.
 - `src/office/` — the world: `useMovement` (keyboard + broadcast over the relay),
   `usePositions` (interpolated remote positions), `useProximityAudio` (distance →
   `speaker.setParticipantVolume`), and the floor / avatars.
@@ -54,11 +63,13 @@ yet: presence per office is the next piece of work.
   spawn zone, which is the least that can be published, since an office with nowhere to
   arrive is one nobody can enter.
 - `src/office/layout.ts` — the geometry: room-context resolution, spawn scatter, seat
-  derivation and collision. Every function takes the `Layout` (floor dimensions + zones)
-  it operates on, so an office's floorplan is data rather than code. A zone is one of five
-  kinds — room, table, wall, spawn, exterior — with privacy and table styling as flags on
-  the zone. `layout.test.ts` covers the geometry, against `exampleLayout.ts` — one
-  hand-authored office kept as a fixture, imported by tests and by nothing that runs.
+  derivation, collision, and `legalSpot` — where somebody ends up when the floor under them
+  is republished with a wall through it. Every function takes the `Layout` (floor
+  dimensions + zones) it operates on, so an office's floorplan is data rather than code.
+  A zone is one of five kinds — room, table, wall, spawn, exterior — with privacy and
+  table styling as flags on the zone. `layout.test.ts` covers the geometry, against
+  `exampleLayout.ts` — one hand-authored office kept as a fixture, imported by tests and by
+  nothing that runs.
 - `src/office/FloorPreview.tsx` — an office's floor with nobody on it, fitted whole into
   the viewport; the join screen shows the office you are about to walk into with it.
   `OfficeFloor` is the other way to draw a layout: zoomed to a person and scrolled to
@@ -76,7 +87,10 @@ yet: presence per office is the next piece of work.
   pointer drags into those functions' arguments; `OfficeEditor.tsx` is the screen.
   Only the owner gets in, and that is the database's answer rather than a check in this
   code: every policy on `offices` names the owner, so a stranger's query returns no rows
-  (ADR-0005).
+  (ADR-0005). Publishing is the one thing done from this screen that anybody else sees:
+  it refuses a layout that isn't an office — overlapping rooms, a spawn under a wall, no
+  spawn or several — naming what is wrong and where, asks before disrupting people who are
+  inside, and then hands them the new floor to stand on.
 
 ### Identity and offices
 
@@ -94,9 +108,15 @@ yet: presence per office is the next piece of work.
   Row-level security filters rows and a draft is a *column*, so the public read surface
   is the `offices_public` view, which has no draft column to leak and shows only
   published Offices. Creating an Office is refused outright for an anonymous identity.
+- `src/lib/publishing.ts` — the other half of publishing: the two calls an owner's browser
+  makes to the token server around the database write, over `src/lib/api.ts` (which is just
+  where the API's base URL lives, shared with `stream.ts`). Neither is load-bearing — the
+  office is published the moment the row is written.
 - `src/lib/offices.ts` — the write path. A Layout is validated against
   `src/office/layoutSchema.ts` before a request is issued: a draft only has to be
-  well-formed, publishing also has to describe an Office a Visitor can arrive in.
+  well-formed, publishing also has to describe an Office that works — one spawn zone,
+  nothing solid under it, and no two rooms over the same floor (which would make
+  room-context, and so privacy, depend on zone order).
   The database keeps a backstop of its own — a Layout must be a document with a `zones`
   array and a Floor matching the row's floor columns — but it stops short of checking
   Zones, so that the schema has one implementation and not a second one in SQL. Anyone

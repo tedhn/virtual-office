@@ -10,6 +10,7 @@ import { StreamClient } from "@stream-io/node-sdk"
 import { attachRelay } from "./relay.mjs"
 import { officeDirectory, supabaseConfig } from "./offices.mjs"
 import { officeLayouts } from "./officeLayouts.mjs"
+import { republishedRoute, visitorCountRoute } from "./publishing.mjs"
 import { tokenRoute } from "./token.mjs"
 
 // Separate Stream apps per environment: dev keys in .dev, prod keys in .prod, anything shared
@@ -62,6 +63,19 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
+// ---------------------------------------------------------------------------
+// Real-time position + chat relay (WebSocket).
+// Stream's custom-event REST endpoint is rate-limited (~3/s) and unsuitable for
+// continuous avatar movement, so positions ride this lightweight fan-out instead.
+// Media + proximity audio stay on Stream. The relay itself — including the chat
+// isolation it enforces — lives in ./relay.mjs, and the Layouts it enforces that
+// isolation against come from ./officeLayouts.mjs, one per Office.
+// ---------------------------------------------------------------------------
+const httpServer = createServer(app)
+const wss = new WebSocketServer({ server: httpServer, path: "/ws" })
+const layouts = officeLayouts({ fetchLayout: directory.publishedLayout })
+const relay = attachRelay(wss, { layoutFor: layouts.layoutFor })
+
 // Mint a user token for someone walking into a published Office. Secret stays on the
 // server; the browser only ever sees the JWT. The gate itself lives in ./token.mjs.
 app.post(
@@ -74,6 +88,21 @@ app.post(
         validity_in_seconds: 60 * 60 * 24, // 24h
       }),
     isOfficePublished: directory.isOfficePublished,
+  }),
+)
+
+// How many Visitors are standing in an Office, and the nudge that says its published
+// Layout has just changed. Both are questions about the relay's live sockets, which is the
+// one thing a publishing browser cannot see for itself — see ./publishing.mjs.
+app.get("/api/offices/:slug/visitors", visitorCountRoute({ visitorCount: relay.visitorCount }))
+
+app.post(
+  "/api/offices/:slug/published",
+  republishedRoute({
+    visitorCount: relay.visitorCount,
+    forget: layouts.forget,
+    layoutFor: layouts.layoutFor,
+    announceLayout: relay.announceLayout,
   }),
 )
 
@@ -90,19 +119,6 @@ if (existsSync(distDir)) {
   })
   console.log("serving built SPA from ./dist")
 }
-
-// ---------------------------------------------------------------------------
-// Real-time position + chat relay (WebSocket).
-// Stream's custom-event REST endpoint is rate-limited (~3/s) and unsuitable for
-// continuous avatar movement, so positions ride this lightweight fan-out instead.
-// Media + proximity audio stay on Stream. The relay itself — including the chat
-// isolation it enforces — lives in ./relay.mjs, and the Layouts it enforces that
-// isolation against come from ./officeLayouts.mjs, one per Office.
-// ---------------------------------------------------------------------------
-const httpServer = createServer(app)
-const wss = new WebSocketServer({ server: httpServer, path: "/ws" })
-const layouts = officeLayouts({ fetchLayout: directory.publishedLayout })
-const relay = attachRelay(wss, { layoutFor: layouts.layoutFor })
 
 httpServer.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT} (ws: /ws)`)

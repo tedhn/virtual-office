@@ -27,10 +27,11 @@ import { validateLayout } from "../src/office/layoutSchema.ts"
  * copy: the relay asks again for every message it judges. Which is also why the cache
  * matters — without it that would be a database round trip per chat line.
  *
- * A publish that told the relay directly would be better than a clock, and is what
- * ADR-0002 asks for. It needs a channel from the browser that publishes to whichever
- * server process is holding the socket, and there is no publishing UI to hang that off
- * yet; until there is, staleness is bounded by this instead.
+ * Publishing now says so directly — `forget` below, reached from the publish endpoint —
+ * which is what ADR-0002 asks for and is the usual way a Layout stops being current. This
+ * clock is the backstop under it: a browser that published and then lost its network, or
+ * a second server process that was not the one told, still stops believing an old Layout
+ * within this window.
  */
 const DEFAULT_TTL_MS = 30_000
 
@@ -99,14 +100,36 @@ export function officeLayouts({
       const pending = inFlight.get(slug)
       if (pending) return pending
 
-      const run = load(slug)
+      // `run` reads itself, so that a fetch can tell whether it is still the current one:
+      // a `forget` between starting and finishing takes it out of the map, and its answer
+      // predates whatever caused the forget. The caller waiting on it still gets it — it
+      // is the best answer that existed when they asked — but it is not remembered as
+      // current, and it does not evict the fetch that replaced it.
+      let run
+      run = load(slug)
         .then((layout) => {
-          remember(slug, layout)
+          if (inFlight.get(slug) === run) remember(slug, layout)
           return layout
         })
-        .finally(() => inFlight.delete(slug))
+        .finally(() => {
+          if (inFlight.get(slug) === run) inFlight.delete(slug)
+        })
       inFlight.set(slug, run)
       return run
+    },
+
+    /**
+     * Drop what is remembered about an Office, so the next question about it is asked of
+     * the database. Publishing calls this: the Owner's browser knows the Layout has
+     * changed the moment it changes, which is a better signal than the clock above and
+     * the one ADR-0002 asks for. Forgetting an Office nobody has asked about is a no-op,
+     * so an address that was never cached costs nothing to be told about.
+     */
+    forget(slug) {
+      remembered.delete(slug)
+      // A fetch already running was started before whatever caused this, so it is no
+      // longer the current one either. See `layoutFor`.
+      inFlight.delete(slug)
     },
 
     /** How many Offices are currently remembered — so a test can prove the bound above. */

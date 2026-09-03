@@ -74,6 +74,11 @@ interface InsideOfficeProps {
   localUserId: string
   localName: string
   onLeave: () => void
+  /**
+   * The Owner has published: this is the Layout now underfoot. Handed upwards rather than
+   * held here, because the Layout arrives as a prop and this file does not own it.
+   */
+  onRepublished: (layout: Layout) => void
 }
 
 /**
@@ -91,6 +96,7 @@ export function InsideOffice({
   localUserId,
   localName,
   onLeave,
+  onRepublished,
 }: InsideOfficeProps) {
   const call = useCall()
   const {
@@ -120,7 +126,10 @@ export function InsideOffice({
   // relay; a ref bridges the socket's incoming handler to the chat hook created below
   // (the socket is set up before the hook, so this breaks the ordering cycle).
   const chatIncomingRef = useRef<(m: ChatMessage) => void>(() => {})
-  const rt = useRealtime(officeSlug, localUserId, localName, (m) => chatIncomingRef.current(m))
+  const rt = useRealtime(officeSlug, localUserId, localName, {
+    onChat: (m) => chatIncomingRef.current(m),
+    onLayout: onRepublished,
+  })
   const { pos: localPos, teleport, walkTo, move } = useMovement(rt.send, initial, layout)
   const isMobile = useIsMobile()
   const positions = useInterpolatedPositions(rt.targetsRef)

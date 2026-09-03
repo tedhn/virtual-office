@@ -2,7 +2,8 @@
 // or DOM import: this module lives under ADR-0004's rules, because `server/officeLayouts.mjs`
 // loads it from source the way the relay loads the geometry. One answer to "is this a
 // Layout?" for the browser that writes one and the server that enforces privacy with it.
-import type { Layout, ZoneKind } from "./layout.ts"
+import { isSolidZone, rectsOverlap, type Layout, type ZoneKind } from "./layout.ts"
+import { AVATAR_SIZE } from "./types.ts"
 
 /**
  * The outcome of checking an untrusted value against the Layout shape. Errors are
@@ -170,17 +171,70 @@ function isWholeAndPositive(value: unknown): value is number {
 
 /**
  * The check Publishing applies: a Layout that is structurally sound *and* describes an
- * Office that works — for now, one a Visitor can actually arrive in. A draft is free to
- * be nonsense; this is the moment that stops being true (see CONTEXT.md, Layout).
+ * Office that works. A draft is free to be nonsense; this is the moment that stops being
+ * true (see CONTEXT.md, Layout).
+ *
+ * Four things beyond shape have to hold, and each is here because of something that breaks
+ * at runtime rather than because of tidiness: exactly one Spawn Zone, big enough to hold an
+ * Avatar, with nothing solid under it, and no two Rooms over the same Floor. Every
+ * rejection names the Zones involved by id, because "this Layout is invalid" is not
+ * something an Owner can act on.
  */
 export function validatePublishableLayout(value: unknown): LayoutValidation {
   const structural = validateLayout(value)
   if (!structural.ok) return structural
 
+  const { zones } = structural.layout
   const errors: string[] = []
-  const spawns = structural.layout.zones.filter((z) => z.kind === "spawn").length
-  if (spawns !== 1) {
-    errors.push(`zones: an Office needs exactly one spawn Zone (found ${spawns})`)
+
+  // A Zone that runs off the Floor is already refused above, as malformed rather than as
+  // unpublishable — so out-of-bounds is caught before this line, for drafts and published
+  // Layouts alike.
+
+  const spawns = zones.filter((z) => z.kind === "spawn")
+  if (spawns.length !== 1) {
+    errors.push(`zones: an Office needs exactly one spawn Zone (found ${spawns.length})`)
+  }
+
+  // Room-context resolution must have exactly one answer for any point on the Floor. Two
+  // Rooms over the same ground give an answer that depends on which one the geometry
+  // happened to look at first, which is order-dependent privacy (CONTEXT.md, Room-context).
+  const rooms = zones.filter((z) => z.kind === "room")
+  for (let i = 0; i < rooms.length; i++) {
+    for (let j = i + 1; j < rooms.length; j++) {
+      if (rectsOverlap(rooms[i].rect, rooms[j].rect)) {
+        errors.push(
+          `zones: rooms "${rooms[i].id}" and "${rooms[j].id}" overlap — a point on the Floor must be inside one Room or none, never two`,
+        )
+      }
+    }
+  }
+
+  const { floor } = structural.layout
+  for (const spawn of spawns) {
+    // Arrivals are inset by an Avatar's radius so the whole Avatar lands inside the Zone
+    // — which a Zone narrower than an Avatar cannot do. Then every arrival stacks on its
+    // middle instead of scattering (CONTEXT.md, Spawn) and hangs over its edges, which is
+    // how somebody materialises inside the Wall next door without this Zone touching it.
+    const width = Math.round(spawn.rect.w * floor.width)
+    const height = Math.round(spawn.rect.h * floor.height)
+    if (width < AVATAR_SIZE || height < AVATAR_SIZE) {
+      errors.push(
+        `zones: the spawn Zone "${spawn.id}" is ${width}x${height}px, too small for anyone to arrive in (${AVATAR_SIZE}px across at least)`,
+      )
+    }
+
+    // And with the whole Avatar landing inside the Zone, a Spawn clear of everything solid
+    // is an Office nobody can arrive inside a Wall in. The Exterior counts for the same
+    // reason a Wall does, even though it is only meant to be looked at.
+    for (const zone of zones) {
+      if (!isSolidZone(zone)) continue
+      if (rectsOverlap(spawn.rect, zone.rect)) {
+        errors.push(
+          `zones: the spawn Zone "${spawn.id}" overlaps the ${zone.kind} "${zone.id}" — Visitors would arrive inside it`,
+        )
+      }
+    }
   }
 
   return errors.length === 0 ? structural : { ok: false, errors }
