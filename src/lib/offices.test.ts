@@ -118,14 +118,25 @@ describe("Saving a draft Layout", () => {
     const { rows, calls } = fakeRows()
     await saveDraft(rows, "office-1", NO_SPAWN)
     expect(calls).toEqual([
-      {
-        op: "update",
-        args: {
-          id: "office-1",
-          patch: { draft_layout: NO_SPAWN, floor_width: 800, floor_height: 600 },
-        },
-      },
+      { op: "update", args: { id: "office-1", patch: { draft_layout: NO_SPAWN } } },
     ])
+  })
+
+  it("leaves the floor columns to the published Layout, whatever Floor the draft has", async () => {
+    // The columns say how big the Office's Floor is for everyone standing in it, so a draft
+    // proposing another size must not touch them — and writing them here would be refused
+    // outright, since the published document would then disagree with them.
+    const wider: Layout = {
+      ...EXAMPLE_LAYOUT,
+      floor: { width: EXAMPLE_LAYOUT.floor.width + 400, height: EXAMPLE_LAYOUT.floor.height },
+    }
+    const { rows, calls } = fakeRows()
+    const office = await saveDraft(rows, "office-1", wider)
+
+    expect(calls[0].args).toEqual({ id: "office-1", patch: { draft_layout: wider } })
+    // The row the database hands back still reports the Floor it was published with.
+    expect(office.floor_width).toBe(900)
+    expect(office.draft_layout.floor.width).toBe(wider.floor.width)
   })
 
   it("rejects a malformed draft before it reaches the database", async () => {

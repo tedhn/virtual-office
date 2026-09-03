@@ -3,12 +3,17 @@ import { validateLayout } from "../layoutSchema"
 import type { Layout } from "../layout"
 import {
   addZone,
+  FLOOR_MAX_PX,
+  FLOOR_MIN_PX,
   moveZone,
   newZoneId,
+  placeZone,
   removeZone,
+  resizeFloor,
   resizeZone,
   RESIZE_HANDLES,
   updateZone,
+  zoneRectPx,
 } from "./layoutEdits"
 
 /** A Floor with round numbers, so a minimum size in px converts to a tidy fraction. */
@@ -218,10 +223,21 @@ describe("The invariant every edit holds", () => {
       if (roll < 0.25 || ids.length === 0) {
         const kind = kinds[Math.floor(next() * kinds.length)]
         layout = addZone(layout, kind, newZoneId(layout, kind))
-      } else if (roll < 0.55) {
+      } else if (roll < 0.5) {
         layout = moveZone(layout, id, delta)
-      } else if (roll < 0.9) {
+      } else if (roll < 0.75) {
         layout = resizeZone(layout, id, RESIZE_HANDLES[Math.floor(next() * 8)], delta)
+      } else if (roll < 0.83) {
+        // Typed numbers belong in here too, and are wilder than a drag: a pointer cannot
+        // ask for a Zone 4000px wide on a Floor half that, and a keyboard can.
+        layout = placeZone(layout, id, {
+          x: delta.dx * layout.floor.width,
+          y: delta.dy * layout.floor.height,
+          w: next() * 4000,
+          h: next() * 4000,
+        })
+      } else if (roll < 0.9) {
+        layout = resizeFloor(layout, { width: next() * 8000, height: next() * 8000 })
       } else {
         layout = removeZone(layout, id)
       }
@@ -231,5 +247,117 @@ describe("The invariant every edit holds", () => {
     }
 
     expect(layout.zones.length).toBeGreaterThan(0)
+  })
+})
+
+describe("Typing a Zone's position and size", () => {
+  it("puts the Zone exactly where the numbers say", () => {
+    const layout = placeZone(layoutOf(A_ROOM), "room-1", { x: 300, y: 250, w: 120, h: 80 })
+    expect(rectOf(layout, "room-1")).toEqual({ x: 0.3, y: 0.25, w: 0.12, h: 0.08 })
+  })
+
+  it("changes only the fields typed into", () => {
+    const layout = placeZone(layoutOf(A_ROOM), "room-1", { w: 100 })
+    expect(rectOf(layout, "room-1")).toEqual({ x: 0.2, y: 0.2, w: 0.1, h: 0.4 })
+  })
+
+  it("reads back as the same whole px that were typed", () => {
+    // A third of a Floor is not a number a rect holds exactly, and the inspector shows
+    // whole px — so a Zone must not renumber itself from 300 to 299 for having been looked
+    // at. This is the round trip the inspector lives on.
+    const floor = { width: 900, height: 900 }
+    const layout = placeZone({ floor, zones: [A_ROOM] }, "room-1", { x: 300, w: 300 })
+    expect(zoneRectPx(layout.zones[0], floor)).toMatchObject({ x: 300, w: 300 })
+  })
+
+  it("keeps a size that fills the Floor, and moves the origin out of its way", () => {
+    // Typing the width of the whole Floor and getting back the half of one that fitted
+    // where the Zone stood is worse than being moved: the number is the part the Owner is
+    // certain about, and where it ended up is the part they can see.
+    const layout = placeZone(layoutOf(A_ROOM), "room-1", { w: 1000 })
+    expect(rectOf(layout, "room-1")).toEqual({ x: 0, y: 0.2, w: 1, h: 0.4 })
+  })
+
+  it("stops a typed origin at the edge of the Floor, keeping the size", () => {
+    const layout = placeZone(layoutOf(A_ROOM), "room-1", { x: 5000, y: -200 })
+    expect(rectOf(layout, "room-1")).toEqual({ x: 0.6, y: 0, w: 0.4, h: 0.4 })
+    expect(validateLayout(layout).ok).toBe(true)
+  })
+
+  it("refuses a size below the point of being grabbable", () => {
+    const layout = placeZone(layoutOf(A_ROOM), "room-1", { w: 0, h: -40 })
+    const rect = rectOf(layout, "room-1")!
+    // 16px of a 1000px Floor, the same minimum a resize handle stops at.
+    expect(rect.w).toBeCloseTo(0.016)
+    expect(rect.h).toBeCloseTo(0.016)
+    expect(validateLayout(layout).ok).toBe(true)
+  })
+
+  it("takes no notice of a field that is not a number yet", () => {
+    // An empty field, or one holding a lone minus sign, must leave the Zone alone rather
+    // than collapse it to the minimum en route to 250. Identity, not equality: the editor
+    // tells unsaved work from saved by comparing Layouts by reference, so a new object here
+    // is an unsaved change nobody made — and a tab guarded against closing over it.
+    const before = layoutOf(A_ROOM)
+    expect(placeZone(before, "room-1", { x: Number.NaN, w: Infinity })).toBe(before)
+  })
+
+  it("hands back the same Layout when the numbers are the ones already there", () => {
+    const before = layoutOf(A_ROOM)
+    expect(placeZone(before, "room-1", { x: 200, y: 200, w: 400, h: 400 })).toBe(before)
+  })
+
+  it("ignores a Zone that is not there", () => {
+    const before = layoutOf(A_ROOM)
+    expect(placeZone(before, "nobody", { x: 10 })).toEqual(before)
+  })
+})
+
+describe("Typing the Floor's own dimensions", () => {
+  it("sets the width and the height", () => {
+    expect(resizeFloor(layoutOf(A_ROOM), { width: 1200, height: 800 }).floor).toEqual({
+      width: 1200,
+      height: 800,
+    })
+  })
+
+  it("changes one dimension without touching the other", () => {
+    expect(resizeFloor(layoutOf(), { width: 1200 }).floor).toEqual({ width: 1200, height: 1000 })
+  })
+
+  it("leaves every Zone with the share of the Floor it had", () => {
+    // Rects are normalized against the Floor, so a Zone half way across a small Floor is
+    // half way across the bigger one too: resizing scales the Office rather than stranding
+    // Zones off the edge of it.
+    const layout = resizeFloor(layoutOf(A_ROOM), { width: 2000 })
+    expect(rectOf(layout, "room-1")).toEqual(A_ROOM.rect)
+    expect(validateLayout(layout).ok).toBe(true)
+  })
+
+  it("refuses a Floor outside the permitted range, at both ends", () => {
+    // Refused here, at the input, rather than at publish: a Floor of one pixel is not a
+    // draft anyone is working towards, and clamping is a shorter way of saying so than an
+    // error an Owner reads after the work is done.
+    expect(resizeFloor(layoutOf(), { width: 1, height: 999999 }).floor).toEqual({
+      width: FLOOR_MIN_PX,
+      height: FLOOR_MAX_PX,
+    })
+  })
+
+  it("keeps the Floor whole px, which is how the Office row stores it", () => {
+    const layout = resizeFloor(layoutOf(), { width: 1200.4, height: 800.6 })
+    expect(layout.floor).toEqual({ width: 1200, height: 801 })
+    expect(validateLayout(layout).ok).toBe(true)
+  })
+
+  it("takes no notice of a dimension that is not a number yet", () => {
+    const before = layoutOf(A_ROOM)
+    expect(resizeFloor(before, { width: Number.NaN })).toBe(before)
+  })
+
+  it("hands back the same Layout when the Floor is already that size", () => {
+    // Same reason as the Zone above: retyping a number as what it said is not a change.
+    const before = layoutOf(A_ROOM)
+    expect(resizeFloor(before, { width: FLOOR.width, height: FLOOR.height })).toBe(before)
   })
 })

@@ -16,9 +16,10 @@ data.
 ## Floor
 
 The walkable surface of an Office, and the coordinate space everything inside it is
-positioned in. The Floor has a width and a height chosen by the Office's Owner. Every
-client of the same Office shares identical Floor dimensions, so world coordinates line up
-between peers.
+positioned in. The Floor has a width and a height chosen by the Office's Owner, within a
+permitted range: a Floor has to be big enough to walk about on and small enough to author
+whole. Every client of the same Office shares identical Floor dimensions, so world
+coordinates line up between peers.
 
 ## Zone
 

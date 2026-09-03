@@ -84,7 +84,12 @@ function checkSlug(slug: string): void {
   }
 }
 
-/** A Layout's own Floor dimensions are the Office's — the two are never stored apart. */
+/**
+ * The floor columns for a Layout becoming the Office's own. They describe the Office's
+ * published Floor — the one every client of it shares — so they travel with a Layout at
+ * creation and at publish, and the database refuses a row where the published document and
+ * these columns disagree about how big the Floor is.
+ */
 function floorOf(layout: Layout) {
   return { floor_width: layout.floor.width, floor_height: layout.floor.height }
 }
@@ -172,10 +177,15 @@ export async function createOfficeFromName(
 /**
  * Save the Owner's work in progress. Held only to being a Layout: a draft is free to be
  * an Office nobody could use yet, which is what makes it a draft.
+ *
+ * The floor columns are deliberately left as they are. A draft's Floor is a proposal — an
+ * Owner may type a wider one and go on working for a week, while the people standing in the
+ * Office are on the Floor that was published to them — so the columns follow the published
+ * Layout, and this write is the one that must not touch them.
  */
 export async function saveDraft(rows: OfficeRows, officeId: string, layout: Layout): Promise<Office> {
   const draft = wellFormed(layout)
-  return rows.update(officeId, { draft_layout: draft, ...floorOf(draft) })
+  return rows.update(officeId, { draft_layout: draft })
 }
 
 /**

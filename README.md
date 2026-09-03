@@ -84,7 +84,12 @@ enforces privacy against.
   layout. `layoutEdits.ts` is the whole of the editing logic as pure functions from layout
   to layout, and it holds one invariant — what comes out is always structurally a layout,
   so an owner's draft always saves however half-finished it is. `EditorFloor.tsx` turns
-  pointer drags into those functions' arguments; `OfficeEditor.tsx` is the screen.
+  pointer drags into those functions' arguments; `OfficeEditor.tsx` is the screen. The
+  inspector beside the floor is the precision a drag cannot reach — the selected zone's
+  position and size in world px, and the floor's own width and height, with a value outside
+  what a floor may be refused at the field rather than at publish. It reads the layout the
+  canvas draws and writes back to the same one, so dragging renumbers the fields and typing
+  moves the zone.
   Only the owner gets in, and that is the database's answer rather than a check in this
   code: every policy on `offices` names the owner, so a stranger's query returns no rows
   (ADR-0005). Publishing is the one thing done from this screen that anybody else sees:
@@ -99,9 +104,12 @@ enforces privacy against.
   back the same person, not a stranger. **Creating** an Office needs a magic-link
   account, because an Office outlives the browser storage an anonymous identity lives in
   (ADR-0003). `AccountSignIn` is that second door, and the create form appears behind it.
-- `supabase/migrations/` — the `offices` table: owner, permanent slug, name, floor
-  dimensions, the published and draft Layouts, and a layout version the database bumps
-  itself on every publish. A Layout is one JSON document (ADR-0001). An office is deleted
+- `supabase/migrations/` — the `offices` table: owner, permanent slug, name, the published
+  floor's dimensions, the published and draft Layouts, and a layout version the database
+  bumps itself on every publish. The floor columns describe the floor every client of that
+  office shares, and the database refuses a row where they and the published document
+  disagree; a draft is free to propose another size, and publishing is what makes it the
+  office's (ADR-0009). A Layout is one JSON document (ADR-0001). An office is deleted
   by being marked deleted, never by having its row removed: the row is what keeps its slug
   spent, so a shared link can never come to mean somewhere else.
 - **Row-level security is the boundary.** The table is owner-only for every operation.

@@ -221,7 +221,10 @@ describe.skipIf(!configured)("offices row-level security", () => {
     expect(error?.message ?? "").toMatch(/violates check constraint/)
   })
 
-  it("refuses floor columns that disagree with the Layout they came from", async () => {
+  it("refuses floor columns that disagree with the published Layout", async () => {
+    // A Zone rect means nothing without the Floor it is measured against, so the Floor
+    // every client of this Office shares and the document they read it from are not
+    // allowed to disagree.
     const { error } = await owner.from("offices").insert({
       owner_id: ownerId,
       slug: uniqueSlug("mismatched"),
@@ -229,9 +232,32 @@ describe.skipIf(!configured)("offices row-level security", () => {
       floor_width: 640,
       floor_height: 480,
       draft_layout: EXAMPLE_LAYOUT,
-      published_layout: null,
+      published_layout: EXAMPLE_LAYOUT,
     })
-    expect(error?.message ?? "").toContain("offices_draft_floor_matches")
+    expect(error?.message ?? "").toContain("offices_published_floor_matches")
+  })
+
+  it("stores a draft whose Floor is a different size from the published one", async () => {
+    // Resizing the Floor is an edit like any other, and a draft is saved long before it is
+    // published: the columns describe the published Floor, so a draft is free to propose
+    // another one without the save being refused.
+    const office = await anOffice()
+    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+
+    const wider: Layout = {
+      ...EXAMPLE_LAYOUT,
+      floor: { width: EXAMPLE_LAYOUT.floor.width + 400, height: EXAMPLE_LAYOUT.floor.height },
+    }
+    await saveDraft(supabaseOfficeRows(owner), office.id, wider)
+
+    const stored = await readOwnOffice(owner, office.slug)
+    expect(stored?.draft_layout.floor).toEqual(wider.floor)
+    expect(stored?.floor_width).toBe(EXAMPLE_LAYOUT.floor.width)
+    expect(stored?.published_layout?.floor).toEqual(EXAMPLE_LAYOUT.floor)
+
+    // And publishing it is what makes that Floor the Office's, columns and all.
+    await publishDraft(supabaseOfficeRows(owner), office.id, wider)
+    expect((await readPublishedOffice(visitor, office.slug))?.floor_width).toBe(wider.floor.width)
   })
 
   it("stops a malformed Layout before it reaches the database", async () => {

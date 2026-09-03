@@ -1,8 +1,10 @@
-// The `.ts` extension matches this module's neighbours in `src/office/`, several of which
-// need it because the server loads them from source (ADR-0004). This one does not: its
-// only import is a type, erased before anything runs. Adding a *runtime* import here would
-// bring it under that rule.
+// The `.ts` extensions match this module's neighbours in `src/office/`, several of which
+// need them because the server loads them from source (ADR-0004). Nothing on the server
+// loads this one — authoring an Office is the browser's business — so that rule does not
+// bind this file, and the extensions are here to spare the next reader working out which
+// side of the line it falls on.
 import type { Layout, Rect, Zone, ZoneKind } from "../layout.ts"
+import { AVATAR_SIZE, type Size } from "../types.ts"
 
 /**
  * Authoring a Layout: the edits an Owner makes, as functions from a Layout to a Layout.
@@ -19,18 +21,25 @@ import type { Layout, Rect, Zone, ZoneKind } from "../layout.ts"
  * and an Owner losing their work to a rect that slid off the Floor would be this module's
  * fault.
  *
- * Everything is in normalized floor space (0..1), which is how a Layout stores rects. The
- * screen converts pointer pixels into that space; nothing here knows about pixels, apart
- * from the one minimum below that has to.
+ * Rects are in normalized floor space (0..1), which is how a Layout stores them, and a
+ * drag arrives already converted into it. World pixels turn up only where a person is
+ * naming a real size: the minimum a Zone may be shrunk to, the range a Floor may be given,
+ * and the numbers the inspector types (`placeZone`, `resizeFloor`) — because a pixel is
+ * what an Owner is actually deciding about in each of those, and a fraction of a Floor is
+ * not.
  */
 
 /**
- * Smallest a Zone may be dragged down to, in world px. Below this it is a Zone nobody can
- * click to grow again, which in an editor is the same as losing it — and the schema's own
- * floor of "greater than zero" is no help there. In px rather than a fraction because the
- * Floor is not square: 0.01 of the height and 0.01 of the width are different sizes.
+ * Smallest a Zone may be shrunk to, dragged or typed, in world px. Below this it is a Zone
+ * nobody can click to grow again, which in an editor is the same as losing it — and the
+ * schema's own floor of "greater than zero" is no help there. In px rather than a fraction
+ * because the Floor is not square: 0.01 of the height and 0.01 of the width are different
+ * sizes.
+ *
+ * Exported because a field an Owner types a size into has to say what size it will accept,
+ * rather than quietly correcting them afterwards.
  */
-const MIN_ZONE_PX = 16
+export const MIN_ZONE_PX = 16
 
 /**
  * What each kind is when it first lands: a size that reads as the thing it is, and is big
@@ -43,6 +52,27 @@ const STARTING_SIZE: Record<ZoneKind, { w: number; h: number }> = {
   spawn: { w: 0.24, h: 0.06 },
   exterior: { w: 0.3, h: 0.1 },
 }
+
+/**
+ * The smallest and largest Floor an Owner may ask for, in world px.
+ *
+ * The minimum is measured in Avatars, because a Floor is something people walk around on,
+ * and an Avatar is 44px of it. Movement is inset by half an Avatar at every edge
+ * (`clampToFloor`), so four across leaves about three Avatars of walkable span — already
+ * less an Office than a corridor, and the point where proximity audio has no distance to
+ * fade over. Nothing in the schema enforces a Floor this size: a publishable Office needs
+ * a Spawn Zone that holds a whole Avatar, which a Floor far smaller than this still could.
+ * The number is a judgement about what is worth authoring, which is why it is refused here,
+ * at the field, rather than at publish.
+ *
+ * The maximum is where the editor gives out rather than where the domain does. The whole
+ * Floor is fitted on screen at once (`FloorCanvas`), so a Floor this wide is drawn at
+ * roughly a sixth of its size on a laptop, which leaves the smallest Zone anyone can author
+ * about three screen px to grab. Past that the canvas has stopped being a way to edit an
+ * Office, and a Floor that can only be authored by typing is not one to hand out.
+ */
+export const FLOOR_MIN_PX = AVATAR_SIZE * 4
+export const FLOOR_MAX_PX = 5000
 
 /** A drag, in normalized floor space. */
 export interface Delta {
@@ -91,10 +121,20 @@ function tidy(rect: Rect): Rect {
   return { x, y, w, h }
 }
 
-/** Replace one Zone, leaving the Layout it came from untouched. */
+/**
+ * Replace one Zone, leaving the Layout it came from untouched.
+ *
+ * A change that hands back the Zone it was given hands back the Layout it was given, whole.
+ * The editor tells saved work from unsaved by comparing Layouts by reference, so a new
+ * object for an edit that edited nothing is an unsaved change that nobody made — and it
+ * would guard the tab against being closed over it.
+ */
 function withZone(layout: Layout, id: string, change: (zone: Zone) => Zone): Layout {
-  if (!layout.zones.some((z) => z.id === id)) return layout
-  return { ...layout, zones: layout.zones.map((z) => (z.id === id ? change(z) : z)) }
+  const zone = layout.zones.find((z) => z.id === id)
+  if (!zone) return layout
+  const changed = change(zone)
+  if (changed === zone) return layout
+  return { ...layout, zones: layout.zones.map((z) => (z === zone ? changed : z)) }
 }
 
 /**
@@ -225,4 +265,112 @@ export function updateZone(layout: Layout, id: string, patch: ZonePatch): Layout
 
     return next
   })
+}
+
+/**
+ * A Zone's rectangle in world px: the shape the numeric inspector reads and writes.
+ *
+ * A stored `Rect` is normalized against the Floor, which is the right thing to store and
+ * the wrong thing to type. An Owner placing a Wall against a Room thinks in pixels, and
+ * 0.333333 of a Floor is not a number anybody means.
+ */
+export interface RectPx {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * A rect in whole world px, for showing in a field somebody types into.
+ *
+ * Whole px because the round trip has to hold still: a rect keeps six decimal places of a
+ * fraction, so 300px of a 900px Floor comes back as 299.9997, and an inspector that showed
+ * that would renumber the Owner's Zone for having been looked at.
+ *
+ * Takes the Zone rather than its rect, because `Rect` and `RectPx` are the same four
+ * numbers to the compiler: a function that took a rect would happily accept the px rect it
+ * exists to produce, and multiply a Floor by a Floor.
+ */
+export function zoneRectPx(zone: Zone, floor: Size): RectPx {
+  return {
+    x: Math.round(zone.rect.x * floor.width),
+    y: Math.round(zone.rect.y * floor.height),
+    w: Math.round(zone.rect.w * floor.width),
+    h: Math.round(zone.rect.h * floor.height),
+  }
+}
+
+/**
+ * Whether a field has been typed into a number yet. An untouched field is `undefined`, and
+ * an emptied or half-typed one arrives as a NaN or an Infinity — none of which is a size
+ * anybody asked for. See `placeZone`.
+ */
+const isTyped = (px: number | undefined): px is number =>
+  px !== undefined && Number.isFinite(px)
+
+/** A typed px value as its share of a Floor span, or null while it is not a number. */
+const shareOf = (px: number | undefined, span: number): number | null =>
+  isTyped(px) ? px / span : null
+
+/**
+ * Put a Zone exactly where it is typed: an origin and a size in world px, any subset of
+ * them, straight from the numeric inspector.
+ *
+ * This is the edit `moveZone` and `resizeZone` make without the pointer, so it is held to
+ * the same invariant — on the Floor, no smaller than something you can grab. Where the two
+ * numbers cannot both be had, the size wins and the origin gives way: an Owner who types
+ * the width of the whole Floor gets a Zone that wide, shifted left to fit, rather than the
+ * half of one that would have fitted where it stood. The width is the part they were
+ * certain about; where it ended up is the part they can see.
+ *
+ * A field that is not a number is not an edit. Fields are typed into one character at a
+ * time, and an empty one, a lone minus sign or a figure too long to be finite has to leave
+ * the Zone alone rather than collapse it to the minimum en route to 250.
+ */
+export function placeZone(layout: Layout, id: string, patch: Partial<RectPx>): Layout {
+  const { width, height } = layout.floor
+  const minW = MIN_ZONE_PX / width
+  const minH = MIN_ZONE_PX / height
+
+  return withZone(layout, id, (zone) => {
+    const w = clamp(shareOf(patch.w, width) ?? zone.rect.w, minW, 1)
+    const h = clamp(shareOf(patch.h, height) ?? zone.rect.h, minH, 1)
+    const x = clamp(shareOf(patch.x, width) ?? zone.rect.x, 0, 1 - w)
+    const y = clamp(shareOf(patch.y, height) ?? zone.rect.y, 0, 1 - h)
+    const rect = tidy({ x, y, w, h })
+    const same =
+      rect.x === zone.rect.x && rect.y === zone.rect.y &&
+      rect.w === zone.rect.w && rect.h === zone.rect.h
+    return same ? zone : { ...zone, rect }
+  })
+}
+
+/**
+ * Set the Floor's own dimensions, in whole world px, within the range above. This is the
+ * one edit here that is about the Office rather than about something on it.
+ *
+ * Zones come through untouched, which is not the same as unmoved: a rect is normalized
+ * against the Floor, so every Zone keeps the share of it it had and the whole Office scales
+ * with the change. Anything else would mean re-checking every rect against the new edges
+ * and then moving or shrinking the ones that no longer fitted, without having been asked
+ * to — and a resize that quietly rearranges an Office is not one an Owner can undo.
+ *
+ * The cost of that is worth naming: shrink a Floor a long way and everything on it shrinks
+ * too, until a Zone is below the size a pointer can grab. Typing is the way back, which is
+ * why these two arrived in the same afternoon's work.
+ *
+ * Whole px because the Office row stores these two numbers as integers beside the document
+ * they were taken from, and the database refuses a row where the two disagree.
+ */
+export function resizeFloor(layout: Layout, size: Partial<Size>): Layout {
+  const asked = (px: number | undefined, current: number) =>
+    isTyped(px) ? Math.round(clamp(px, FLOOR_MIN_PX, FLOOR_MAX_PX)) : current
+
+  const width = asked(size.width, layout.floor.width)
+  const height = asked(size.height, layout.floor.height)
+  // A number retyped as the number it already was is not a change to the draft, and must
+  // not be reported as one — see `withZone`.
+  if (width === layout.floor.width && height === layout.floor.height) return layout
+  return { ...layout, floor: { width, height } }
 }
