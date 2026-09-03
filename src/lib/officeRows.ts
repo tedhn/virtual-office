@@ -1,6 +1,13 @@
 import type { PostgrestSingleResponse, SupabaseClient } from "@supabase/supabase-js"
 import { OfficeWriteError } from "./offices"
-import type { Office, OfficeFields, OfficeRows, PublishedOffice } from "./offices"
+import type {
+  Office,
+  OfficeFields,
+  OfficePatch,
+  OfficeRows,
+  OfficeSummary,
+  PublishedOffice,
+} from "./offices"
 
 /**
  * The Supabase side of the office store: the thinnest possible translation of the row
@@ -23,7 +30,7 @@ export function supabaseOfficeRows(client: SupabaseClient): OfficeRows {
   return {
     insert: async (fields: OfficeFields) =>
       rowOrThrow(await offices().insert(fields).select().single()) as Office,
-    update: async (id: string, patch: Partial<OfficeFields>) =>
+    update: async (id: string, patch: OfficePatch) =>
       rowOrThrow(await offices().update(patch).eq("id", id).select().single()) as Office,
   }
 }
@@ -56,6 +63,32 @@ export async function readOwnOffice(
     .maybeSingle()
   if (error) throw new Error(error.message)
   return (data as Office | null) ?? null
+}
+
+/**
+ * Every Office this account owns, newest first.
+ *
+ * `owner_id` is filtered on even though the policy on the table already restricts the
+ * answer to the caller's own rows — the filter says what the query means, and the database
+ * is what makes it true (ADR-0005). It is also the only thing this read is keyed on, so
+ * the list reloads when a different account signs in and not otherwise.
+ *
+ * A deleted Office is left out here for the same reason it is left out of `readOwnOffice`:
+ * the row is still the Owner's, but "deleted" is a thing it is, and an Office they have
+ * deleted is not one of theirs to open any more.
+ */
+export async function listOwnOffices(
+  client: SupabaseClient,
+  ownerId: string,
+): Promise<OfficeSummary[]> {
+  const { data, error } = await client
+    .from("offices")
+    .select("id, slug, name")
+    .eq("owner_id", ownerId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data as OfficeSummary[] | null) ?? []
 }
 
 /**

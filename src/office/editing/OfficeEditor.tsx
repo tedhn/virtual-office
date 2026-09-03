@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { publishDraft, saveDraft, type Office } from "@/lib/offices"
+import { people } from "@/lib/people"
 import { supabaseOfficeRows } from "@/lib/officeRows"
 import { announcePublished, visitorsInside } from "@/lib/publishing"
 import { officePath } from "@/lib/routes"
@@ -333,20 +334,14 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
  * an unanswered question is not the same as a "no".
  */
 async function disruptionQuestion(slug: string): Promise<string | null> {
-  let visitors: number
-  try {
-    visitors = await visitorsInside(slug)
-  } catch {
+  const visitors = await visitorsInside(slug)
+  if (visitors === null) {
     return "We couldn't check whether anyone is in the office right now. Publish anyway?"
   }
   if (visitors === 0) return null
   return `Publishing now moves the ${people(visitors)} in the office onto the new layout straight away, and anyone standing where you've put something solid will be moved to where they can stand. Publish anyway?`
 }
 
-/** A count of people, said the way a person would. */
-function people(n: number): string {
-  return n === 1 ? "one person" : `${n} people`
-}
 
 /**
  * The selected Zone: where it sits, its name, and the flags its kind allows. Only the

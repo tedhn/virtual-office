@@ -10,6 +10,16 @@ A single virtual workplace that people walk around in together. An Office is the
 user creates and owns. Each Office is its own world: the people inside one Office cannot
 see, hear, or message the people inside another.
 
+An Office is **reachable** when a Visitor can walk into it: it has a published Layout, and
+it has not been deleted. Those are the only two ways to be unreachable, and from outside
+they are deliberately indistinguishable — which of the two it is, is nobody's business but
+the Owner's.
+
+An Office may be **deleted** by its Owner, which is permanent and takes effect for
+everyone: it stops being reachable, and anybody standing in it at the time is **turned
+out** — disconnected, and told the place has gone. What survives a deletion is its Slug —
+see below — so the address it answered to is spent rather than freed.
+
 Formerly there was exactly one Office (`office-main`), hardcoded. It is now user-created
 data.
 
@@ -89,5 +99,6 @@ draft is free to be nonsense, a published Layout is not.
 ## Slug
 
 The short, human-readable name an Office is addressed by. A slug is permanent: it belongs
-to the Office it first named, survives renaming, and is never reassigned to a different
-Office — a shared link must never quietly resolve to somewhere else.
+to the Office it first named, survives renaming and deleting alike, and is never reassigned
+to a different Office — a shared link must never quietly resolve to somewhere else. An
+Office's name is the thing an Owner may change; its address is not.

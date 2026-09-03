@@ -1,0 +1,23 @@
+-- Deleting an Office is marking it deleted, and there is no longer any other way to do it.
+--
+-- The `deleted_at` column and the view that honours it arrived with the soft delete, but the
+-- DELETE policy written before them stayed — which left the row removable by the account
+-- that owns it, with nothing but client code choosing not to. That is precisely what a soft
+-- delete exists to prevent: the row is what keeps the slug spent, and a row that leaves
+-- releases the unique index and hands that address to whoever asks for it next. A slug
+-- belongs permanently to the Office it first named (CONTEXT.md, Slug), and "permanently"
+-- cannot be a convention in `src/lib/offices.ts` while the database still offers the door.
+--
+-- The policy is dropped rather than replaced with one that refuses: with no policy naming
+-- DELETE, row-level security matches no rows for anybody, so the statement succeeds having
+-- removed nothing. A caller is told the same thing a stranger's delete has always been told,
+-- and no client has to learn a new error.
+--
+-- What this deliberately does not close: `owner_id references auth.users (id) on delete
+-- cascade`. Deleting the *account* still takes its Offices with it, slugs included. Nothing
+-- in the product deletes an account, and the alternative — rows whose Owner no longer
+-- exists — wants a decision about who owns an orphaned Office, not a constraint change
+-- smuggled in here. The throwaway accounts the test suites create rely on that cascade to
+-- clean up after themselves.
+
+drop policy "an Owner deletes their own Office" on public.offices;

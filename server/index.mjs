@@ -10,7 +10,7 @@ import { StreamClient } from "@stream-io/node-sdk"
 import { attachRelay } from "./relay.mjs"
 import { officeDirectory, supabaseConfig } from "./offices.mjs"
 import { officeLayouts } from "./officeLayouts.mjs"
-import { republishedRoute, visitorCountRoute } from "./publishing.mjs"
+import { deletedRoute, republishedRoute, visitorCountRoute } from "./publishing.mjs"
 import { tokenRoute } from "./token.mjs"
 
 // Separate Stream apps per environment: dev keys in .dev, prod keys in .prod, anything shared
@@ -91,9 +91,10 @@ app.post(
   }),
 )
 
-// How many Visitors are standing in an Office, and the nudge that says its published
-// Layout has just changed. Both are questions about the relay's live sockets, which is the
-// one thing a publishing browser cannot see for itself — see ./publishing.mjs.
+// How many Visitors are standing in an Office, and the nudges that say its published
+// Layout has just changed or that the Office is gone. All three are questions about the
+// relay's live sockets, which is the one thing an Owner's browser cannot see for itself —
+// see ./publishing.mjs.
 app.get("/api/offices/:slug/visitors", visitorCountRoute({ visitorCount: relay.visitorCount }))
 
 app.post(
@@ -103,6 +104,15 @@ app.post(
     forget: layouts.forget,
     layoutFor: layouts.layoutFor,
     announceLayout: relay.announceLayout,
+  }),
+)
+
+app.post(
+  "/api/offices/:slug/deleted",
+  deletedRoute({
+    forget: layouts.forget,
+    layoutFor: layouts.layoutFor,
+    closeOffice: relay.closeOffice,
   }),
 )
 

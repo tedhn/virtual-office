@@ -46,10 +46,32 @@ export interface PublishedOffice {
   layout_version: number
 }
 
+/**
+ * What an update to an Office may set: any column a client writes, plus the mark that
+ * deletes it.
+ *
+ * `deleted_at` is in the patch but not in `OfficeFields`, because it is not part of what
+ * an Office *is* — no Office is created deleted, and nothing reads the column back (see
+ * `officeRows.ts`). It is written once, and after that every surface filters on it.
+ */
+export type OfficePatch = Partial<OfficeFields> & { deleted_at?: string }
+
+/**
+ * An Office as it appears in its Owner's list of them: enough to open it, share it, rename
+ * it or delete it, and nothing else. No Layout — a list of Offices has no floors to draw,
+ * and reading two whole documents per row to render a line of text is a read nobody asked
+ * for.
+ */
+export interface OfficeSummary {
+  id: string
+  slug: string
+  name: string
+}
+
 /** The row operations this module needs. `supabaseOfficeRows` is the real implementation. */
 export interface OfficeRows {
   insert(fields: OfficeFields): Promise<Office>
-  update(id: string, patch: Partial<OfficeFields>): Promise<Office>
+  update(id: string, patch: OfficePatch): Promise<Office>
 }
 
 /**
@@ -82,6 +104,17 @@ function checkSlug(slug: string): void {
       `slug: expected ${SLUG_MIN_LENGTH}-${SLUG_MAX_LENGTH} characters of lowercase letters, digits and single hyphens (got "${slug}")`,
     )
   }
+}
+
+/**
+ * An Office's name, as it will be stored. Trimmed, because a trailing space is not part of
+ * what somebody called their Office, and refused when there is nothing left — the database
+ * says the same thing, less helpfully.
+ */
+function checkName(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error("name: an Office needs a name")
+  return trimmed
 }
 
 /**
@@ -149,9 +182,7 @@ export async function createOfficeFromName(
   office: { ownerId: string; name: string },
   tail: () => string = randomTail,
 ): Promise<Office> {
-  const name = office.name.trim()
-  if (!name) throw new Error("name: an Office needs a name")
-
+  const name = checkName(office.name)
   const layout = publishable(newOfficeLayout())
   let refusal: unknown
   for (const slug of slugCandidates(name, tail)) {
@@ -204,4 +235,43 @@ export async function publishDraft(
     draft_layout: published,
     ...floorOf(published),
   })
+}
+
+/**
+ * Rename an Office. The name is the only thing that changes: the slug it is addressed by
+ * is permanent, so every link anybody has already shared goes on reaching it (CONTEXT.md,
+ * Slug). The database refuses a slug change outright, which is what makes that a fact
+ * rather than a promise this function keeps.
+ */
+export async function renameOffice(
+  rows: OfficeRows,
+  officeId: string,
+  name: string,
+): Promise<Office> {
+  return rows.update(officeId, { name: checkName(name) })
+}
+
+/**
+ * Delete an Office: mark the row deleted, and leave it there.
+ *
+ * A row removed outright takes its slug with it and hands that address to whoever asks for
+ * it next — which would silently drop somebody's bookmark into a stranger's Office. So the
+ * row stays, its slug stays spent for good, and every public surface stops showing it: the
+ * `offices_public` view filters on this column, so the Office stops rendering, stops
+ * minting Stream tokens, and stops being a channel on the relay.
+ *
+ * What "deleted" means is the mark being there, not the moment it names — nothing reads the
+ * timestamp back, and no surface compares it to the clock. It is a record of when, which is
+ * why the clock is a parameter: a test should not have to know today's date.
+ *
+ * The people standing in the Office at the time are not disconnected by this write. Their
+ * sockets belong to the relay, which no database write can reach; telling it is
+ * `announceDeleted`'s job (see `lib/publishing.ts`).
+ */
+export async function deleteOffice(
+  rows: OfficeRows,
+  officeId: string,
+  now: () => string = () => new Date().toISOString(),
+): Promise<Office> {
+  return rows.update(officeId, { deleted_at: now() })
 }

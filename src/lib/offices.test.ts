@@ -5,8 +5,10 @@ import { newOfficeLayout } from "@/office/newOfficeLayout"
 import {
   createOffice,
   createOfficeFromName,
+  deleteOffice,
   OfficeWriteError,
   publishDraft,
+  renameOffice,
   saveDraft,
   type OfficeRows,
 } from "./offices"
@@ -259,5 +261,47 @@ describe("Naming an Office into existence", () => {
     const office = await createOfficeFromName(rows, { ownerId: OWNER, name: "🏢" }, tails())
     expect(office.slug).toBe("office")
     expect(office.name).toBe("🏢")
+  })
+})
+
+describe("Renaming an Office", () => {
+  it("changes the name and nothing else, so the link people hold goes on working", async () => {
+    const { rows, calls } = fakeRows()
+    const office = await renameOffice(rows, "office-1", "Acme Global")
+    expect(calls).toEqual([
+      { op: "update", args: { id: "office-1", patch: { name: "Acme Global" } } },
+    ])
+    expect(office.slug).toBe("acme")
+  })
+
+  it("trims the name, so a trailing space is not part of the Office", async () => {
+    const { rows, calls } = fakeRows()
+    await renameOffice(rows, "office-1", "  Acme Global  ")
+    expect(calls[0].args).toEqual({ id: "office-1", patch: { name: "Acme Global" } })
+  })
+
+  it("refuses to leave an Office with no name at all", async () => {
+    const { rows, calls } = fakeRows()
+    await expect(renameOffice(rows, "office-1", "   ")).rejects.toThrow("name")
+    expect(calls).toEqual([])
+  })
+})
+
+describe("Deleting an Office", () => {
+  it("marks the row deleted rather than removing it, so the slug stays spent", async () => {
+    const { rows, calls } = fakeRows()
+    await deleteOffice(rows, "office-1", () => "2026-09-03T12:00:00.000Z")
+    expect(calls).toEqual([
+      {
+        op: "update",
+        args: { id: "office-1", patch: { deleted_at: "2026-09-03T12:00:00.000Z" } },
+      },
+    ])
+  })
+
+  it("touches neither the Layouts nor the name, because a deleted Office is not an edited one", async () => {
+    const { rows, calls } = fakeRows()
+    await deleteOffice(rows, "office-1")
+    expect(Object.keys((calls[0].args as { patch: object }).patch)).toEqual(["deleted_at"])
   })
 })

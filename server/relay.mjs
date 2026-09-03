@@ -47,8 +47,9 @@ function stateOf(meta) {
  * Visitor could stand for hours inside the floorplan their Office had when they arrived.
  * How long a Layout is believed is one decision, and it is `officeLayouts.mjs`'s.
  *
- * Returns a handle: `closeAll()` for graceful shutdown,
- * plus `visitorCount`/`announceLayout` for what the HTTP side asks about a republished Office.
+ * Returns a handle: `closeAll()` for graceful shutdown, plus `visitorCount`,
+ * `announceLayout` and `closeOffice` — what the HTTP side asks of the relay about an Office
+ * whose Owner has just republished or deleted it.
  */
 export function attachRelay(wss, { layoutFor }) {
   // Office slug -> Set<socket>. Each socket carries its own
@@ -198,8 +199,8 @@ export function attachRelay(wss, { layoutFor }) {
      * published one, asked for afresh rather than remembered here.
      */
     async function fanOutChat(sender, text, audience) {
-      // Fail closed, both ways: an Office that has since been unpublished has no Layout to
-      // judge Room-context by, and a directory we cannot reach is not permission to guess.
+      // Fail closed, both ways: an Office that is no longer published has no Layout to judge
+      // Room-context by, and a directory we cannot reach is not permission to guess.
       let layout
       try {
         layout = await layoutFor(sender.slug)
@@ -207,7 +208,11 @@ export function attachRelay(wss, { layoutFor }) {
         console.error(`dropping chat in "${sender.slug}": office lookup failed:`, err)
         return
       }
-      if (!layout) return
+      // No Office here any more: it has been deleted or unpublished while these people were
+      // standing in it. The database has just said so, which is the standing this module
+      // needs to turn them out (ADR-0010) — and it beats leaving them to talk into a room
+      // where nothing they say arrives, with no reason given.
+      if (!layout) return closeOffice(sender.slug)
 
       const senderContext = roomContextAt(layout, sender)
       const msg = JSON.stringify({
@@ -281,6 +286,37 @@ export function attachRelay(wss, { layoutFor }) {
     broadcast(slug, null, { t: "layout", layout })
   }
 
+  /**
+   * Turn everybody out of an Office that is no longer there, and say why with the one close
+   * code a client is meant to believe: there is no Office at this address, so do not knock
+   * again. Answers with how many sockets it closed.
+   *
+   * Reached from the endpoint an Owner's browser calls after deleting (see
+   * `publishing.mjs`), and from the chat path when the Layout lookup comes back empty.
+   * Never on a guess: both callers have a fresh answer from the database in hand, because a
+   * socket closed with this code is one the client will not reopen (ADR-0010).
+   *
+   * Only sockets still open are closed and counted. One already on its way out is somebody
+   * who has left, and counting them would have an Owner told they interrupted more people
+   * than they did.
+   *
+   * The Office is not removed from the map here. Each socket's own close handler does that
+   * as it goes, which is the same path a Visitor closing their tab takes — so there is one
+   * way an Office empties rather than two.
+   */
+  function closeOffice(slug) {
+    const sockets = offices.get(slug)
+    if (!sockets) return 0
+    let closed = 0
+    // A copy, because closing a socket ends up deleting it from this very Set.
+    for (const sock of [...sockets]) {
+      if (sock.readyState !== sock.OPEN) continue
+      sock.close(CLOSE_NO_OFFICE, "no office is published at that address")
+      closed++
+    }
+    return closed
+  }
+
   /** Close every live socket so clients reconnect at once. */
   function closeAll() {
     for (const sockets of offices.values()) {
@@ -294,5 +330,5 @@ export function attachRelay(wss, { layoutFor }) {
     }
   }
 
-  return { closeAll, visitorCount, announceLayout }
+  return { closeAll, closeOffice, visitorCount, announceLayout }
 }

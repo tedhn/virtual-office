@@ -27,12 +27,12 @@ enforces privacy against.
 
 ### How it works
 
-- **An office is its URL.** `/` creates one, `/<slug>` renders one, `/<slug>/edit`
-  authors one, and anything else is a 404 — the whole route table is `src/lib/routes.ts`,
-  a pure function over the path, with `useRoute.ts` as the twenty lines that touch the
-  browser. A slug is permanent: it comes from the office's name, is never reassigned, and
-  is checked in the same shape by the client (`src/lib/slug.ts`), the token server and the
-  database.
+- **An office is its URL.** `/` creates one and lists the ones you own, `/<slug>` renders
+  one, `/<slug>/edit` authors one, and anything else is a 404 — the whole route table is
+  `src/lib/routes.ts`, a pure function over the path, with `useRoute.ts` as the twenty
+  lines that touch the browser. A slug is permanent: it comes from the office's name, is
+  never reassigned, and is checked in the same shape by the client (`src/lib/slug.ts`), the
+  token server and the database.
 - `server/index.mjs` — Express token server (:3001). Mints Stream JWTs; the API secret
   never reaches the browser. It mints only for an office that exists and is published
   (`server/token.mjs`, ADR-0006), which is why it needs Supabase credentials to start.
@@ -41,17 +41,22 @@ enforces privacy against.
   shares the sender's room-context. It computes that from `src/office/layout.ts`, loaded
   straight from TypeScript source (see ADR-0004), so privacy has a single implementation.
   A socket is scoped to one office by its slug, and a slug no published office answers to
-  is refused, so peers never cross from one office to another. `relay.test.mjs` drives a
-  real socket server and covers the isolation rules.
+  is refused, so peers never cross from one office to another — and an office that stops
+  answering while people are inside it has them turned out, with a close code that tells
+  their reconnect loop not to knock again. `relay.test.mjs` drives a real socket server and
+  covers the isolation rules.
 - `server/officeLayouts.mjs` — where the relay gets those layouts: one per office, fetched
   from `offices_public` and remembered for 30 seconds. The relay keeps no copy of its own,
   so that interval is the whole of how stale enforcement can get (ADR-0002). Publishing
-  cuts it short by saying so: `server/publishing.mjs` is the pair of endpoints an owner's
-  browser calls around a publish — how many visitors are standing in the office (so it can
-  warn them first) and the nudge that drops the cached layout and pushes the new one down
-  every socket in that office (ADR-0007). Neither is an identity check, for the reason
-  ADR-0006 gives about the endpoint beside them; `server/officeReplies.mjs` is the two
-  answers all three routes share, so they cannot drift on what a 404 and a 503 mean.
+  cuts it short by saying so: `server/publishing.mjs` is the three endpoints an owner's
+  browser calls around a publish or a delete — how many visitors are standing in the office
+  (so it can warn them first), the nudge that drops the cached layout and pushes the new one
+  down every socket in that office (ADR-0007), and the one that turns everybody out of an
+  office that has been deleted. None is an identity check, for the reason ADR-0006 gives
+  about the endpoint beside them, and the delete nudge does not need to be one: it rereads
+  the database and closes sockets only if the office really is gone, so claiming an office
+  has been deleted cannot empty one that has not (ADR-0010). `server/officeReplies.mjs` is
+  the answers those routes share, so they cannot drift on what a 404 and a 503 mean.
   The relay also hands a layout to anyone joining, which is what makes its reconnect loop
   the backstop for a nudge that never arrived.
 - `src/office/` — the world: `useMovement` (keyboard + broadcast over the relay),
@@ -109,17 +114,23 @@ enforces privacy against.
   bumps itself on every publish. The floor columns describe the floor every client of that
   office shares, and the database refuses a row where they and the published document
   disagree; a draft is free to propose another size, and publishing is what makes it the
-  office's (ADR-0009). A Layout is one JSON document (ADR-0001). An office is deleted
-  by being marked deleted, never by having its row removed: the row is what keeps its slug
-  spent, so a shared link can never come to mean somewhere else.
+  office's (ADR-0009). A Layout is one JSON document (ADR-0001). An office is deleted by
+  being marked deleted, never by having its row removed — the row is what keeps its slug
+  spent, so a shared link can never come to mean somewhere else — and no policy grants
+  DELETE at all, so that is the database's rule rather than the client's manners.
 - **Row-level security is the boundary.** The table is owner-only for every operation.
   Row-level security filters rows and a draft is a *column*, so the public read surface
   is the `offices_public` view, which has no draft column to leak and shows only
   published Offices. Creating an Office is refused outright for an anonymous identity.
-- `src/lib/publishing.ts` — the other half of publishing: the two calls an owner's browser
-  makes to the token server around the database write, over `src/lib/api.ts` (which is just
-  where the API's base URL lives, shared with `stream.ts`). Neither is load-bearing — the
-  office is published the moment the row is written.
+- `src/lib/publishing.ts` — the other half of publishing and deleting: the calls an owner's
+  browser makes to the token server around the database write, over `src/lib/api.ts` (which
+  is just where the API's base URL lives, shared with `stream.ts`). None is load-bearing —
+  the office is published, or deleted, the moment the row is written.
+- `src/OwnOffices.tsx` — the owner's list of their offices, and the two things they can do
+  to one from outside it: rename it, which leaves the address every shared link uses alone,
+  and delete it, which asks first because the address is then spent for good and anybody
+  inside is disconnected. Both are ordinary writes; what makes them owner-only is that the
+  database hands nobody else the row (ADR-0005).
 - `src/lib/offices.ts` — the write path. A Layout is validated against
   `src/office/layoutSchema.ts` before a request is issued: a draft only has to be
   well-formed, publishing also has to describe an Office that works — one spawn zone,

@@ -65,6 +65,13 @@ export interface RealtimeHandlers {
   onChat?: (m: ChatMessage) => void
   /** The Layout this Office is on now, on arrival and whenever it is republished. */
   onLayout?: (layout: Layout) => void
+  /**
+   * The relay has turned this Visitor out: no Office answers to this address any more, its
+   * Owner having deleted or unpublished it while they were standing in it (CONTEXT.md,
+   * Office). There is nothing to reconnect to, so somebody has to be told — see
+   * `OfficeView`.
+   */
+  onTurnedOut?: () => void
 }
 
 export function useRealtime(
@@ -135,12 +142,13 @@ export function useRealtime(
       // The one close worth believing is the relay saying there is no Office at this
       // address: that answer does not change on a second knock, and a client that retries
       // it anyway spends the rest of the page's life reconnecting once a second. It gets
-      // here when an Office is deleted or unpublished while somebody is standing in it.
+      // here when an Office stops being reachable while somebody is standing in it — which
+      // is somebody's evening interrupted, so it is handed on rather than logged.
       sock.onclose = (ev) => {
         if (disposed) return
         targetsRef.current.clear()
         if (ev.code === CLOSE_NO_OFFICE) {
-          console.error("the relay says this office is no longer published; not reconnecting")
+          handlersRef.current.onTurnedOut?.()
           return
         }
         retry = setTimeout(connect, 1000)

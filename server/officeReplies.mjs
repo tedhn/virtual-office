@@ -1,7 +1,7 @@
 /**
- * The two things this server says when a request names an Office and it cannot hand one
- * over. Shared rather than written out per route, because they are one decision each and
- * two endpoints already have to agree on them.
+ * What this server says when a request names an Office and it cannot hand one over.
+ * Shared rather than written out per route, because they are one decision each and the
+ * endpoints that name an Office already have to agree on them.
  *
  * The distinction is the whole reason this file exists rather than a single `catch`: "no
  * Office answers to that address" and "we could not ask" are different answers, and a
@@ -24,4 +24,14 @@ export function noSuchOffice(res) {
  */
 export function directoryUnreachable(res) {
   return res.status(503).json({ error: "could not reach the office directory" })
+}
+
+/**
+ * That Office is still published, so whatever the caller says has happened to it has not.
+ * Said to a browser claiming an Office has been deleted when the database still hands it
+ * over — which is the answer that keeps the claim from being worth making up: nobody can
+ * empty a live Office by asserting it is gone.
+ */
+export function officeStillPublished(res) {
+  return res.status(409).json({ error: "that office is still published" })
 }

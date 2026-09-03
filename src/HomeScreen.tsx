@@ -19,15 +19,19 @@ import { officePath } from "@/lib/routes"
 import { isSlug, slugFrom } from "@/lib/slug"
 import { supabase } from "@/lib/supabase"
 import { navigate } from "@/lib/useRoute"
+import { OwnOffices } from "@/OwnOffices"
 
 interface HomeScreenProps {
   auth: AuthGateway
 }
 
 /**
- * The front door. An Office is reached at its own URL, so there is nothing to list here
- * for someone who arrived with a link — this screen exists for the other case: making an
- * Office of your own, which takes a real account (ADR-0003).
+ * The front door, and what it offers depends on who is standing at it.
+ *
+ * An Office is reached at its own URL, so a Visitor who arrived with a link never comes
+ * here and there is nothing to show them. This screen is for the other case: making an
+ * Office of your own, which takes a real account (ADR-0003) — and then, once you have one,
+ * keeping track of the ones you have made.
  */
 export function HomeScreen({ auth }: HomeScreenProps) {
   const { session, error } = auth
@@ -41,6 +45,8 @@ export function HomeScreen({ auth }: HomeScreenProps) {
           A floor to walk around on together. Voices fade in when you get close.
         </p>
       </div>
+
+      {owner && <OwnOffices ownerId={owner} />}
 
       {owner && <CreateOfficeForm ownerId={owner} />}
 

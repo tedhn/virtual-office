@@ -3,11 +3,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   createOffice,
   createOfficeFromName,
+  deleteOffice,
   publishDraft,
+  renameOffice,
   saveDraft,
   type Office,
 } from "@/lib/offices"
-import { readOwnOffice, readPublishedOffice, supabaseOfficeRows } from "@/lib/officeRows"
+import {
+  listOwnOffices,
+  readOwnOffice,
+  readPublishedOffice,
+  supabaseOfficeRows,
+} from "@/lib/officeRows"
 import { slugFrom } from "@/lib/slug"
 import { EXAMPLE_LAYOUT } from "@/office/exampleLayout"
 import type { Layout } from "@/office/layout"
@@ -275,11 +282,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
     await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
     expect(await readPublishedOffice(visitor, office.slug)).not.toBeNull()
 
-    const { error } = await owner
-      .from("offices")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", office.id)
-    expect(error).toBeNull()
+    await deleteOffice(supabaseOfficeRows(owner), office.id)
 
     expect(await readPublishedOffice(visitor, office.slug)).toBeNull()
   })
@@ -347,20 +350,14 @@ describe.skipIf(!configured)("offices row-level security", () => {
 
   it("does not open the editor for an Office its Owner has deleted", async () => {
     const office = await anOffice("Gone")
-    await owner
-      .from("offices")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", office.id)
+    await deleteOffice(supabaseOfficeRows(owner), office.id)
 
     expect(await readOwnOffice(owner, office.slug)).toBeNull()
   })
 
   it("keeps a deleted Office's slug spent, so its link never resolves elsewhere", async () => {
     const office = await anOffice("Doomed")
-    await owner
-      .from("offices")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", office.id)
+    await deleteOffice(supabaseOfficeRows(owner), office.id)
 
     await expect(
       createOffice(supabaseOfficeRows(owner), {
@@ -370,6 +367,79 @@ describe.skipIf(!configured)("offices row-level security", () => {
         layout: EXAMPLE_LAYOUT,
       }),
     ).rejects.toThrow(/duplicate key|offices_slug_key/)
+  })
+
+  it("hands an Owner every Office they own, and nobody else's", async () => {
+    const mine = await anOffice("Mine")
+    const alsoMine = await anOffice("Also mine")
+
+    const listed = await listOwnOffices(owner, ownerId)
+    expect(listed.map((o) => o.id)).toEqual(expect.arrayContaining([mine.id, alsoMine.id]))
+    expect(listed.every((o) => o.name && o.slug)).toBe(true)
+
+    // Asking for somebody else's Offices by their id answers with nothing: the policy is
+    // on the row, not on the filter, so naming an owner you are not gets you no rows.
+    expect(await listOwnOffices(stranger, ownerId)).toEqual([])
+    expect(await listOwnOffices(visitor, ownerId)).toEqual([])
+  })
+
+  it("refuses to remove the row, so deleting an Office can only ever mark it deleted", async () => {
+    // The row is what keeps the slug spent, so the Owner does not get to take it away
+    // either. No policy names DELETE, so the statement matches no rows rather than failing —
+    // the same answer a stranger's delete has always been given.
+    const office = await anOffice("Stubborn")
+
+    const { error } = await owner.from("offices").delete().eq("id", office.id)
+    expect(error).toBeNull()
+
+    expect(await readOwnOffice(owner, office.slug)).not.toBeNull()
+  })
+
+  it("keeps a removed-then-recreated slug out of reach even after a hard delete attempt", async () => {
+    const office = await anOffice("Doomed")
+    await owner.from("offices").delete().eq("id", office.id)
+    await deleteOffice(supabaseOfficeRows(owner), office.id)
+
+    await expect(
+      createOffice(supabaseOfficeRows(owner), {
+        ownerId,
+        slug: office.slug,
+        name: "Squatter",
+        layout: EXAMPLE_LAYOUT,
+      }),
+    ).rejects.toThrow(/duplicate key|offices_slug_key/)
+  })
+
+  it("drops an Office out of its Owner's list once they delete it", async () => {
+    const office = await anOffice("Doomed")
+    expect((await listOwnOffices(owner, ownerId)).map((o) => o.id)).toContain(office.id)
+
+    await deleteOffice(supabaseOfficeRows(owner), office.id)
+
+    expect((await listOwnOffices(owner, ownerId)).map((o) => o.id)).not.toContain(office.id)
+  })
+
+  it("renames an Office without moving it, so a shared link still opens it", async () => {
+    const office = await anOffice("Old name")
+    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+
+    const renamed = await renameOffice(supabaseOfficeRows(owner), office.id, "New name")
+    expect(renamed.slug).toBe(office.slug)
+
+    const seen = await readPublishedOffice(visitor, office.slug)
+    expect(seen?.name).toBe("New name")
+  })
+
+  it("refuses to rename or delete an Office belonging to somebody else", async () => {
+    const office = await anOffice("Not yours")
+
+    await expect(
+      renameOffice(supabaseOfficeRows(stranger), office.id, "Mine now"),
+    ).rejects.toThrow()
+    await expect(deleteOffice(supabaseOfficeRows(stranger), office.id)).rejects.toThrow()
+
+    const stored = await readOwnOffice(owner, office.slug)
+    expect(stored?.name).toBe("Not yours")
   })
 })
 

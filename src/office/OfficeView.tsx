@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk"
 import { NotFound } from "@/NotFound"
 import { JoinScreen } from "@/JoinScreen"
+import { Button } from "@/components/ui/button"
 import type { AuthGateway } from "@/auth/useAuthSession"
 import type { PublishedOffice } from "@/lib/offices"
 import { isAnonymous } from "@/auth/session"
@@ -52,6 +53,32 @@ export function OfficeView({ slug, auth }: OfficeViewProps) {
   return <OfficeDoor office={lookup.value} auth={auth} />
 }
 
+/**
+ * Turned out: the Office stopped being reachable while this Visitor was standing in it
+ * (CONTEXT.md, Office).
+ *
+ * Its own screen rather than a message on the way back to the join screen, because the
+ * join screen offers to walk in — and there is nowhere to walk into. Deliberately says
+ * nothing about which of deleting and unpublishing happened: that is the Owner's business,
+ * and the relay does not know either (see `NotFound`, which draws the same line).
+ */
+function TurnedOut({ officeName }: { officeName: string }) {
+  return (
+    <div className="min-h-svh flex flex-col items-center justify-center gap-6 p-6 text-center">
+      <div className="flex flex-col items-center gap-2">
+        <h1 className="text-2xl font-semibold tracking-tight">{officeName} is gone</h1>
+        <p className="text-muted-foreground max-w-sm text-sm">
+          Its owner took it down while you were inside, so you have been turned out. This
+          address doesn't lead to an office any more.
+        </p>
+      </div>
+      <Button variant="secondary" onClick={() => navigate("/")}>
+        Go to the start
+      </Button>
+    </div>
+  )
+}
+
 /** A Visitor who has been let in: their call, and the name they are wearing. */
 interface Presence {
   call: OfficeCall
@@ -73,6 +100,10 @@ function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGatew
   // Held here rather than inside, because it is the Office's, not the standing-in-it's.
   const [layout, setLayout] = useState<Layout>(office.published_layout)
   const [presence, setPresence] = useState<Presence | null>(null)
+  // Set when the relay turns this Visitor out: no Office answers to this address any more,
+  // its Owner having deleted or unpublished it while they were standing in it. One-way —
+  // there is no Office to walk back into, so nothing clears it.
+  const [turnedOut, setTurnedOut] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The call to let go of on the way out, reachable from an unmount cleanup that must not
@@ -124,6 +155,16 @@ function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGatew
     void call?.release()
   }, [])
 
+  // Being turned out is leaving, plus being told why: the call goes the same way it does
+  // when somebody presses the button, because a call into an Office that is gone is a call
+  // to nowhere.
+  const turnOut = useCallback(() => {
+    leave()
+    setTurnedOut(true)
+  }, [leave])
+
+  if (turnedOut) return <TurnedOut officeName={office.name} />
+
   if (!presence) {
     // Only the Owner is offered the editor, and only when they are signed in as an account
     // rather than as the anonymous Visitor they also are. This is an offer, not a gate: the
@@ -156,6 +197,7 @@ function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGatew
           localName={presence.name}
           onLeave={leave}
           onRepublished={setLayout}
+          onTurnedOut={turnOut}
         />
       </StreamCall>
     </StreamVideo>

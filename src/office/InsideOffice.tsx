@@ -79,6 +79,12 @@ interface InsideOfficeProps {
    * held here, because the Layout arrives as a prop and this file does not own it.
    */
   onRepublished: (layout: Layout) => void
+  /**
+   * This Visitor has been turned out: the Office stopped being reachable while they were
+   * standing in it. Handed upwards for the same reason the Layout is — being in an Office
+   * is this file's business, and no longer having one to be in is not.
+   */
+  onTurnedOut: () => void
 }
 
 /**
@@ -97,6 +103,7 @@ export function InsideOffice({
   localName,
   onLeave,
   onRepublished,
+  onTurnedOut,
 }: InsideOfficeProps) {
   const call = useCall()
   const {
@@ -129,6 +136,7 @@ export function InsideOffice({
   const rt = useRealtime(officeSlug, localUserId, localName, {
     onChat: (m) => chatIncomingRef.current(m),
     onLayout: onRepublished,
+    onTurnedOut,
   })
   const { pos: localPos, teleport, walkTo, move } = useMovement(rt.send, initial, layout)
   const isMobile = useIsMobile()

@@ -3,8 +3,12 @@ import { createServer } from "node:http"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
 import { WebSocket, WebSocketServer } from "ws"
+import { fakeRes } from "./fakeRes.mjs"
+import { officeLayouts } from "./officeLayouts.mjs"
+import { deletedRoute } from "./publishing.mjs"
 import { attachRelay } from "./relay.mjs"
 import { EXAMPLE_LAYOUT } from "../src/office/exampleLayout.ts"
+import { CLOSE_NO_OFFICE } from "../src/office/relayClose.ts"
 
 // Points in the example Floor, in world px. The same coordinates the geometry tests use,
 // so both suites agree on what "inside room C" means.
@@ -318,9 +322,11 @@ describe("Which Office's Layout privacy is judged against", () => {
     expect(stray.closed).toEqual([1013])
   })
 
-  it("stops carrying chat for an Office that has since been unpublished", async () => {
+  it("stops carrying chat for an Office that is no longer published, and turns everyone out", async () => {
     // Unpublishing locks people out (ADR-0006). Anyone already standing inside has no
     // Layout to judge Room-context by any more, and guessing is not an option privacy has.
+    // Having asked the database and been told there is no Office, the relay does not leave
+    // them talking into it either — an unexplained silence is the worse answer.
     let live = true
     const relay = relayHarness(async () => (live ? EXAMPLE_LAYOUT : null))
     const alice = await relay.visitor("alice", ON_FLOOR)
@@ -332,6 +338,7 @@ describe("Which Office's Layout privacy is judged against", () => {
     await settle()
 
     expect(bob.chats()).toEqual([])
+    for (const client of [alice, bob]) expect(client.closed).toEqual([CLOSE_NO_OFFICE])
   })
 })
 
@@ -399,6 +406,117 @@ describe("Telling an Office its Layout has been republished", () => {
   it("shrugs at an Office nobody is standing in", () => {
     const relay = exampleRelay()
     expect(() => relay.handle.announceLayout("office-one", OTHER_LAYOUT)).not.toThrow()
+  })
+})
+
+describe("Turning out an Office that is gone", () => {
+  it("closes every socket in it, with the code that says not to knock again", async () => {
+    const relay = exampleRelay()
+    const alice = await relay.visitor("alice", ON_FLOOR, "office-one")
+    const bob = await relay.visitor("bob", ALSO_ON_FLOOR, "office-one")
+    await settle()
+
+    expect(relay.handle.closeOffice("office-one")).toBe(2)
+    await settle()
+
+    for (const client of [alice, bob]) expect(client.closed).toEqual([CLOSE_NO_OFFICE])
+  })
+
+  it("leaves the people in a different Office standing", async () => {
+    const relay = exampleRelay()
+    const alice = await relay.visitor("alice", ON_FLOOR, "office-one")
+    const carol = await relay.visitor("carol", ON_FLOOR, "office-two")
+    await settle()
+
+    relay.handle.closeOffice("office-one")
+    await settle()
+
+    expect(alice.closed).toEqual([CLOSE_NO_OFFICE])
+    expect(carol.closed).toEqual([])
+    expect(relay.handle.visitorCount("office-two")).toBe(1)
+  })
+
+  it("stops holding the Office open once it has turned everyone out", async () => {
+    const relay = exampleRelay()
+    await relay.visitor("alice", ON_FLOOR, "office-one")
+    await settle()
+
+    relay.handle.closeOffice("office-one")
+    await settle()
+
+    expect(relay.handle.visitorCount("office-one")).toBe(0)
+  })
+
+  it("turns nobody out of an Office nobody is standing in", () => {
+    const relay = exampleRelay()
+    expect(relay.handle.closeOffice("office-one")).toBe(0)
+  })
+
+  it("does not count somebody who was already leaving", async () => {
+    const relay = exampleRelay()
+    const alice = await relay.visitor("alice", ON_FLOOR, "office-one")
+    const bob = await relay.visitor("bob", ALSO_ON_FLOOR, "office-one")
+    await settle()
+
+    // Gone by their own hand, before the Office was. The Owner is told about the one person
+    // they interrupted, not about the two sockets the map briefly still held.
+    bob.sock.close()
+    await settle()
+
+    expect(relay.handle.closeOffice("office-one")).toBe(1)
+    await settle()
+    expect(alice.closed).toEqual([CLOSE_NO_OFFICE])
+  })
+})
+
+describe("Deleting an Office out from under the people in it", () => {
+  /**
+   * The whole chain an Owner's delete actually travels, with nothing faked but the
+   * database: the endpoint their browser calls, the Layout supply it tells to forget, and
+   * the real sockets of the people standing inside.
+   *
+   * Worth assembling rather than trusting the parts, because the order is what makes it
+   * work. The Office's Layout is remembered from the moment somebody walked in, so an
+   * endpoint that asked before forgetting would be handed the Layout of an Office that is
+   * already gone, and would leave everybody standing in it.
+   */
+  it("closes the sockets of everyone inside, through the endpoint the browser calls", async () => {
+    let deleted = false
+    const layouts = officeLayouts({ fetchLayout: async () => (deleted ? null : EXAMPLE_LAYOUT) })
+    const relay = relayHarness(layouts.layoutFor)
+    const alice = await relay.visitor("alice", ON_FLOOR, "office-one")
+    const bob = await relay.visitor("bob", ALSO_ON_FLOOR, "office-one")
+    await settle()
+
+    deleted = true
+    const { res, sent } = fakeRes()
+    await deletedRoute({
+      forget: layouts.forget,
+      layoutFor: layouts.layoutFor,
+      closeOffice: relay.handle.closeOffice,
+    })({ params: { slug: "office-one" } }, res)
+    await settle()
+
+    expect(sent).toEqual({ status: 200, body: { visitors: 2 } })
+    for (const client of [alice, bob]) expect(client.closed).toEqual([CLOSE_NO_OFFICE])
+  })
+
+  it("leaves them standing when the Office is still there", async () => {
+    const layouts = officeLayouts({ fetchLayout: async () => EXAMPLE_LAYOUT })
+    const relay = relayHarness(layouts.layoutFor)
+    const alice = await relay.visitor("alice", ON_FLOOR, "office-one")
+    await settle()
+
+    const { res, sent } = fakeRes()
+    await deletedRoute({
+      forget: layouts.forget,
+      layoutFor: layouts.layoutFor,
+      closeOffice: relay.handle.closeOffice,
+    })({ params: { slug: "office-one" } }, res)
+    await settle()
+
+    expect(sent.status).toBe(409)
+    expect(alice.closed).toEqual([])
   })
 })
 
