@@ -11,19 +11,18 @@ import { OfficeView } from "./office/OfficeView"
  *
  * An identity is arranged here rather than per screen, because every screen wants the
  * same one: a Visitor is signed in anonymously as the page loads, and an Owner signs in
- * on top of that with a magic link (ADR-0003).
+ * on top of that with a magic link (ADR-0003). It is also the identity a Visitor walks
+ * into an Office as, so there is exactly one person behind the avatar and the account.
  */
 function App() {
   const route = useRoute()
-  const { session, error, requestMagicLink } = useAuthSession()
+  const auth = useAuthSession()
 
   return (
     <>
       <Toaster />
-      {route.kind === "home" && (
-        <HomeScreen session={session} error={error} onRequestLink={requestMagicLink} />
-      )}
-      {route.kind === "office" && <OfficeView slug={route.slug} />}
+      {route.kind === "home" && <HomeScreen auth={auth} />}
+      {route.kind === "office" && <OfficeView slug={route.slug} auth={auth} />}
       {route.kind === "notFound" && <NotFound />}
     </>
   )

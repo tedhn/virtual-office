@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { DEFAULT_LAYOUT } from "./defaultLayout"
+import { EXAMPLE_LAYOUT } from "./exampleLayout"
 import {
   hitsSolid,
   roomAt,
@@ -78,15 +78,15 @@ describe("Room-context resolution", () => {
     expect(roomAt(layout, { x: 700, y: 700 })).toBeNull()
   })
 
-  it("resolves the default office's Rooms", () => {
-    expect(roomContextAt(DEFAULT_LAYOUT, { x: 675, y: 800 })).toBe("C")
-    expect(roomContextAt(DEFAULT_LAYOUT, { x: 200, y: 1900 })).toBe("A")
-    expect(roomContextAt(DEFAULT_LAYOUT, { x: 700, y: 1900 })).toBe("B")
-    expect(roomContextAt(DEFAULT_LAYOUT, { x: 400, y: 1200 })).toBeNull()
+  it("resolves the example office's Rooms", () => {
+    expect(roomContextAt(EXAMPLE_LAYOUT, { x: 675, y: 800 })).toBe("C")
+    expect(roomContextAt(EXAMPLE_LAYOUT, { x: 200, y: 1900 })).toBe("A")
+    expect(roomContextAt(EXAMPLE_LAYOUT, { x: 700, y: 1900 })).toBe("B")
+    expect(roomContextAt(EXAMPLE_LAYOUT, { x: 400, y: 1200 })).toBeNull()
     // The two former toilets are non-private Rooms: enclosed, but still on the open Floor.
-    expect(roomContextAt(DEFAULT_LAYOUT, { x: 70, y: 70 })).toBeNull()
-    expect(roomAt(DEFAULT_LAYOUT, { x: 70, y: 70 })).toBe("T1")
-    expect(roomAt(DEFAULT_LAYOUT, { x: 100, y: 260 })).toBe("T2")
+    expect(roomContextAt(EXAMPLE_LAYOUT, { x: 70, y: 70 })).toBeNull()
+    expect(roomAt(EXAMPLE_LAYOUT, { x: 70, y: 70 })).toBe("T1")
+    expect(roomAt(EXAMPLE_LAYOUT, { x: 100, y: 260 })).toBe("T2")
   })
 
   it("reads the Layout it is handed, not a floorplan of its own", () => {
@@ -127,12 +127,12 @@ describe("Solid-zone collision", () => {
     expect(hitsSolid(layoutOf(spawn), { x: 400, y: 425 }, HALF)).toBe(false)
   })
 
-  it("blocks the default office's furniture and walls", () => {
-    expect(hitsSolid(DEFAULT_LAYOUT, { x: 135, y: 620 }, HALF)).toBe(true) // table t4
-    expect(hitsSolid(DEFAULT_LAYOUT, { x: 135, y: 568 }, HALF)).toBe(true) // wall beside room C
-    expect(hitsSolid(DEFAULT_LAYOUT, { x: 675, y: 250 }, HALF)).toBe(true) // dining-styled table D
-    expect(hitsSolid(DEFAULT_LAYOUT, { x: 400, y: 1700 }, HALF)).toBe(false) // open floor
-    expect(hitsSolid(DEFAULT_LAYOUT, { x: 675, y: 800 }, HALF)).toBe(false) // inside room C
+  it("blocks the example office's furniture and walls", () => {
+    expect(hitsSolid(EXAMPLE_LAYOUT, { x: 135, y: 620 }, HALF)).toBe(true) // table t4
+    expect(hitsSolid(EXAMPLE_LAYOUT, { x: 135, y: 568 }, HALF)).toBe(true) // wall beside room C
+    expect(hitsSolid(EXAMPLE_LAYOUT, { x: 675, y: 250 }, HALF)).toBe(true) // dining-styled table D
+    expect(hitsSolid(EXAMPLE_LAYOUT, { x: 400, y: 1700 }, HALF)).toBe(false) // open floor
+    expect(hitsSolid(EXAMPLE_LAYOUT, { x: 675, y: 800 }, HALF)).toBe(false) // inside room C
   })
 })
 
@@ -184,14 +184,14 @@ describe("Seat derivation", () => {
     expect(seatSlots(layoutOf(spawn), spawn, HALF)).toEqual([])
   })
 
-  it("derives the default office's chairs", () => {
-    const zone = (id: string) => DEFAULT_LAYOUT.zones.find((z) => z.id === id)!
+  it("derives the example office's chairs", () => {
+    const zone = (id: string) => EXAMPLE_LAYOUT.zones.find((z) => z.id === id)!
     // t4 seats 2, and the wall above it blocks that edge, so both chairs go below.
-    expect(seatSlots(DEFAULT_LAYOUT, zone("t4"), HALF)).toEqual([
+    expect(seatSlots(EXAMPLE_LAYOUT, zone("t4"), HALF)).toEqual([
       { x: 90, y: 708 },
       { x: 180, y: 708 },
     ])
-    expect(seatSlots(DEFAULT_LAYOUT, zone("t1"), HALF)).toEqual([
+    expect(seatSlots(EXAMPLE_LAYOUT, zone("t1"), HALF)).toEqual([
       { x: 562.5, y: 1132 },
       { x: 675, y: 1132 },
       { x: 787.5, y: 1132 },
@@ -199,13 +199,13 @@ describe("Seat derivation", () => {
       { x: 675, y: 1288 },
       { x: 787.5, y: 1288 },
     ])
-    expect(seatSlots(DEFAULT_LAYOUT, zone("C"), HALF)).toEqual([])
+    expect(seatSlots(EXAMPLE_LAYOUT, zone("C"), HALF)).toEqual([])
   })
 
   it("recognises an avatar sitting on a derived chair", () => {
-    expect(seatedTableAt(DEFAULT_LAYOUT, { x: 90, y: 708 }, HALF)).toBe("t4")
-    expect(seatedTableAt(DEFAULT_LAYOUT, { x: 675, y: 1132 }, HALF)).toBe("t1")
-    expect(seatedTableAt(DEFAULT_LAYOUT, { x: 400, y: 1200 }, HALF)).toBeNull()
+    expect(seatedTableAt(EXAMPLE_LAYOUT, { x: 90, y: 708 }, HALF)).toBe("t4")
+    expect(seatedTableAt(EXAMPLE_LAYOUT, { x: 675, y: 1132 }, HALF)).toBe("t1")
+    expect(seatedTableAt(EXAMPLE_LAYOUT, { x: 400, y: 1200 }, HALF)).toBeNull()
   })
 })
 
@@ -237,11 +237,11 @@ describe("Spawn", () => {
     expect(spawnPoint(layoutOf(room("C")), "alice", HALF)).toEqual({ x: 500, y: 500 })
   })
 
-  it("lands on walkable open Floor in the default office", () => {
+  it("lands on walkable open Floor in the example office", () => {
     for (const id of ids) {
-      const p = spawnPoint(DEFAULT_LAYOUT, id, HALF)
-      expect(hitsSolid(DEFAULT_LAYOUT, p, HALF)).toBe(false)
-      expect(roomAt(DEFAULT_LAYOUT, p)).toBeNull()
+      const p = spawnPoint(EXAMPLE_LAYOUT, id, HALF)
+      expect(hitsSolid(EXAMPLE_LAYOUT, p, HALF)).toBe(false)
+      expect(roomAt(EXAMPLE_LAYOUT, p)).toBeNull()
     }
   })
 })

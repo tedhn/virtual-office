@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { FloatingJoystick } from "./FloatingJoystick"
 
-/** A single contextual floor action surfaced by proximity (see OfficeRoom). */
+/** A single contextual floor action surfaced by proximity (see InsideOffice). */
 export interface FloorAction {
   kind: "join" | "leave" | "sit" | "stand"
   label: string

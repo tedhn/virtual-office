@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  // Aliased: the bare name would shadow the DOM's `new Audio(...)` used for the jeff sound.
   Audio as ParticipantAudio,
   CallingState,
   SfuModels,
@@ -42,21 +41,16 @@ import {
   freeSeatNear,
   isSeatTaken,
   joinSpot,
-  rectToPx,
   roomAt,
   roomContextAt,
   roomNear,
   seatedTableAt,
   spawnPoint,
   standSpot,
+  type Layout,
   type Zone,
 } from "./layout"
-import { DEFAULT_LAYOUT } from "./defaultLayout"
 import { AVATAR_SIZE, type Position } from "./types"
-
-// Env-specific so dev (localhost) and prod (Railway) are independent Offices — separate
-// Stream call AND separate relay channel, so they never see or hear each other.
-const OFFICE_ID = `office-${import.meta.env.MODE}`
 
 // World-px of width shown across a phone screen (~2x zoom vs the full 900px floor).
 const MOBILE_VIEW_WIDTH = 430
@@ -65,26 +59,39 @@ const MOBILE_VIEW_WIDTH = 430
 const ROOM_PROXIMITY = AVATAR_SIZE // px from a room wall that counts as "near"
 const SEAT_PROXIMITY = 80 // px from a chair that counts as "near"
 
-// Leftovers from the fixed floorplan: these two Rooms hold one person each, and their walls
-// are too tight for exitSpot to find open floor, so they exit to hand-placed spots. Quirks of
-// one authored office rather than anything a Zone kind carries — they go when Layouts do.
-const SINGLE_OCCUPANT_ROOM_IDS = new Set(["T1", "T2"])
-
 // Mobile: while the avatar sits under the top-left HUD (clamped camera parks it there),
 // fade the HUD out. Fractions of the floor that count as "top-left".
 const HUD_FADE_X = 0.34
 const HUD_FADE_Y = 0.28
 
-// Sound that plays when you walk past the table beside room C (t4).
-const jeffUrl = new URL("../jeff.mp3", import.meta.url).href
-
-interface OfficeRoomProps {
+interface InsideOfficeProps {
+  /** The Office being stood in: its Floor dimensions and every Zone on it. */
+  layout: Layout
+  /** The Office's slug. Names its channel on the relay, and nobody else's. */
+  officeSlug: string
+  /** What the Office is called, for the people inside it. */
+  officeName: string
   localUserId: string
   localName: string
   onLeave: () => void
 }
 
-export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps) {
+/**
+ * Standing in an Office: the Floor, everyone on it, and the controls for being one of
+ * them.
+ *
+ * Everything specific to an Office arrives as a prop. There is no floorplan in this file
+ * and no office id derived from the build — the Layout is the one its Owner published, and
+ * the relay channel is the Office's own slug, so two Offices never see or hear each other.
+ */
+export function InsideOffice({
+  layout,
+  officeSlug,
+  officeName,
+  localUserId,
+  localName,
+  onLeave,
+}: InsideOfficeProps) {
   const call = useCall()
   const {
     useCallCallingState,
@@ -103,37 +110,17 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
   // the browser's own "Stop sharing" bar too, so the button label stays correct either way.
   const { screenShare, isEnabled: sharingScreen } = useScreenShareState()
 
-  // The office being rendered. One fixed layout for now; later this is fetched per office.
-  const layout = DEFAULT_LAYOUT
   const floor = layout.floor
   const half = AVATAR_SIZE / 2
   // Arrivals scatter inside the office's Spawn Zone, deterministically per user id.
   const initial = useMemo(() => spawnPoint(layout, localUserId, half), [layout, localUserId, half])
-  const joinedRef = useRef(false)
-
-  // Join once, publish mic, keep camera off (audio-only office).
-  useEffect(() => {
-    if (!call || joinedRef.current) return
-    joinedRef.current = true
-    ;(async () => {
-      try {
-        if (call.state.callingState === CallingState.IDLE) {
-          await call.join({ create: true })
-        }
-        await call.camera.disable()
-        await call.microphone.enable()
-      } catch (err) {
-        console.error("failed to join call:", err)
-      }
-    })()
-  }, [call])
 
   // Positions ride a WebSocket relay (Stream's event endpoint is rate-limited);
   // interpolation smooths the discrete updates into fluid motion. Chat rides the same
   // relay; a ref bridges the socket's incoming handler to the chat hook created below
   // (the socket is set up before the hook, so this breaks the ordering cycle).
   const chatIncomingRef = useRef<(m: ChatMessage) => void>(() => {})
-  const rt = useRealtime(OFFICE_ID, localUserId, localName, (m) => chatIncomingRef.current(m))
+  const rt = useRealtime(officeSlug, localUserId, localName, (m) => chatIncomingRef.current(m))
   const { pos: localPos, teleport, walkTo, move } = useMovement(rt.send, initial, layout)
   const isMobile = useIsMobile()
   const positions = useInterpolatedPositions(rt.targetsRef)
@@ -251,27 +238,6 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
     return () => window.removeEventListener("keydown", onKey)
   }, [chatOpen, openChat])
 
-  // Play jeff.mp3 once each time you walk into the vicinity of the table beside room C (t4).
-  const jeffRef = useRef<HTMLAudioElement | null>(null)
-  const wasNearT4 = useRef(false)
-  useEffect(() => {
-    const t4 = layout.zones.find((z) => z.id === "t4")
-    if (!t4) return
-    const r = rectToPx(t4.rect, layout.floor)
-    const pad = 60 // px around the table that counts as "passing" it
-    const near =
-      localPos.x > r.left - pad &&
-      localPos.x < r.left + r.width + pad &&
-      localPos.y > r.top - pad &&
-      localPos.y < r.top + r.height + pad
-    if (near && !wasNearT4.current) {
-      if (!jeffRef.current) jeffRef.current = new Audio(jeffUrl)
-      jeffRef.current.currentTime = 0
-      void jeffRef.current.play().catch(() => {})
-    }
-    wasNearT4.current = near
-  }, [localPos, layout])
-
   // Which remote users are currently speaking (Stream drives the flags).
   const speakingIds = useMemo(
     () => new Set(participants.filter((p) => p.isSpeaking).map((p) => p.userId)),
@@ -336,7 +302,7 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
       ? expanded.participant.userId
       : null
   // Keep the sender in a ref so this fires only when the watched id changes — `rt` is a fresh
-  // object each render and OfficeRoom re-renders every frame (positions), which would
+  // object each render and InsideOffice re-renders every frame (positions), which would
   // otherwise re-broadcast the watch flag continuously.
   const sendWatchRef = useRef(rt.sendWatch)
   useEffect(() => {
@@ -364,37 +330,16 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
   // Click a Room to join it (or leave if already inside — teleport through the doorway).
   // Keyed off roomAt (any Room), not currentRoom (private Rooms only), so the join/leave
   // toggle works for a non-private Room even though it carries no privacy.
+  //
+  // Both spots come from the geometry module, which reads them off the Room's own
+  // rectangle. There is nothing here that knows one Office's rooms from another's.
   const onEnter = (zone: Zone) => {
     if (zone.kind !== "room") return
     const inside = roomAt(layout, localPos)
-    if (inside !== zone.id) {
-      // A stall holds one person: refuse entry if a peer is already inside.
-      if (SINGLE_OCCUPANT_ROOM_IDS.has(zone.id)) {
-        const taken = Object.values(positions).some((p) => roomAt(layout, p) === zone.id)
-        if (taken) {
-          toast(`${zone.label} is occupied`)
-          return
-        }
-      }
-      teleport(joinSpot(layout, zone, localPos, half))
-      return
-    }
-    // Leaving. These two are tightly walled, so exitSpot can land in a wall — send them to a
-    // hardcoded open spot in the corridor between them: the top one exits just below it, the
-    // bottom one just above it.
-    // Room C exits into the open gap beside the bottom wall and C; others use the nearest wall.
-    if (SINGLE_OCCUPANT_ROOM_IDS.has(zone.id)) {
-      teleport(
-        zone.id === "T1"
-          ? { x: 0.08 * floor.width, y: 0.09 * floor.height } // top: below it, in the wing
-          : { x: 0.12 * floor.width, y: 0.09 * floor.height }, // bottom: above it, in the wing
-      )
-      return
-    }
     teleport(
-      zone.id === "C"
-        ? { x: 0.4 * floor.width, y: 0.5 * floor.height }
-        : exitSpot(layout, zone, localPos, half),
+      inside === zone.id
+        ? exitSpot(layout, zone, localPos, half)
+        : joinSpot(layout, zone, localPos, half),
     )
   }
 
@@ -502,7 +447,7 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
           hudFadeClass,
         ].join(" ")}
       >
-        <div className="font-medium">Virtual Rooftop Energy Office</div>
+        <div className="truncate font-medium">{officeName}</div>
       </div>
 
       {/* Roster. On mobile it sits top-left under the title (top-right is the toolbar). */}
@@ -666,13 +611,13 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
                 </dd>
               </div>
               <div>
-                <dt className="font-medium">Rooms are private (A, B, C)</dt>
+                <dt className="font-medium">Rooms are private</dt>
                 <dd className="text-neutral-600 dark:text-neutral-400">
-                  Inside a room you only hear <strong>and see</strong> people in that same
-                  room. People outside <strong>cannot</strong> hear or see into the room,
-                  and you <strong>cannot</strong> hear or see out. Click a room to enter;
-                  click it again (or “Leave”) to step out — walls seal it, so entering and
-                  leaving teleports you through the doorway.
+                  Inside a private room you only hear <strong>and see</strong> people in
+                  that same room. People outside <strong>cannot</strong> hear or see into
+                  it, and you <strong>cannot</strong> hear or see out. Click a room to
+                  enter; click it again (or “Leave”) to step out — walls seal it, so
+                  entering and leaving teleports you through the doorway.
                 </dd>
               </div>
               <div>
@@ -715,7 +660,7 @@ export function OfficeRoom({ localUserId, localName, onLeave }: OfficeRoomProps)
                 <dd className="text-neutral-600 dark:text-neutral-400">
                   Toggle Mute anytime. A speaking avatar shows a green pulse; a muted one a
                   red mic badge. <strong>Deafen</strong> silences everyone else and mutes you
-                  too; unmuting lifts it. The list top-right shows everyone in the office.
+                  too; unmuting lifts it. The roster shows everyone in this office.
                 </dd>
               </div>
             </dl>

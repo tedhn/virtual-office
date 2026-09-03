@@ -41,8 +41,9 @@ export interface Zone {
  * a rect means nothing without the floor it is measured against.
  *
  * Every function below takes the Layout it operates on. Nothing here reads a floorplan
- * from module scope, so an office's geometry is data, not code: see `defaultLayout.ts`
- * for the one this app currently ships.
+ * from module scope, so an office's geometry is data, not code: a Layout comes from the
+ * Office being stood in, and the only one written out in this repo is the fixture in
+ * `exampleLayout.ts`.
  */
 export interface Layout {
   floor: Size

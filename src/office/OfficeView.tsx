@@ -1,21 +1,29 @@
+import { useCallback, useEffect, useRef, useState } from "react"
+import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk"
 import { NotFound } from "@/NotFound"
-import { FloorPreview } from "./FloorPreview"
+import { JoinScreen } from "@/JoinScreen"
+import type { AuthGateway } from "@/auth/useAuthSession"
+import type { PublishedOffice } from "@/lib/offices"
+import { createClient } from "@/lib/stream"
+import { InsideOffice } from "./InsideOffice"
+import { openOfficeCall, type OfficeCall } from "./officeCall"
 import { usePublishedOffice } from "./usePublishedOffice"
 
 interface OfficeViewProps {
   /** The Office's permanent address, taken from the URL. */
   slug: string
+  auth: AuthGateway
 }
 
 /**
- * An Office at its own URL: the Floor exactly as its Owner published it.
+ * An Office at its own URL: what is there, and then standing in it.
  *
- * Nobody is on it yet. Presence — walking in, proximity audio, Room-isolated chat — is
- * the next piece of work; the parts that did it for the one hardcoded office are still
- * here in `OfficeRoom.tsx` and `useRealtime.ts`, waiting to be pointed at an Office
- * rather than at a constant.
+ * Two steps, because they fail differently. Finding the Office is a question about an
+ * address and can answer "nowhere"; walking into it is a question about media permissions
+ * and a call, and can answer "not right now". Keeping them apart is what lets a Visitor
+ * retry the second without re-asking the first.
  */
-export function OfficeView({ slug }: OfficeViewProps) {
+export function OfficeView({ slug, auth }: OfficeViewProps) {
   const lookup = usePublishedOffice(slug)
 
   if (lookup.status === "loading") {
@@ -37,16 +45,101 @@ export function OfficeView({ slug }: OfficeViewProps) {
     )
   }
 
-  const { office } = lookup
+  return <OfficeDoor office={lookup.office} auth={auth} />
+}
+
+/** A Visitor who has been let in: their call, and the name they are wearing. */
+interface Presence {
+  call: OfficeCall
+  userId: string
+  name: string
+}
+
+/**
+ * The door of one Office, and what is behind it.
+ *
+ * The call is opened when somebody walks in, and released when they leave by the button or
+ * navigate away. A closed tab is Stream's to notice — its own socket drops with the page —
+ * which is why there is no unload handler here pretending to do it more tidily.
+ */
+function OfficeDoor({ office, auth }: { office: PublishedOffice; auth: AuthGateway }) {
+  const [presence, setPresence] = useState<Presence | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // The call to let go of on the way out, reachable from an unmount cleanup that must not
+  // re-run every time `presence` changes.
+  const openCall = useRef<OfficeCall | null>(null)
+  const { ensureIdentity } = auth
+
+  useEffect(() => {
+    return () => {
+      void openCall.current?.release()
+      openCall.current = null
+    }
+  }, [])
+
+  const join = useCallback(
+    async (name: string) => {
+      if (connecting || openCall.current) return
+      setConnecting(true)
+      setError(null)
+      try {
+        // The Stream user is the Supabase identity, not something invented from the display
+        // name: the same person walking back in is the same person, refresh after refresh.
+        const identity = await ensureIdentity()
+        if (!identity) throw new Error("There is no identity to walk in with")
+
+        const userId = identity.user.id
+        const call = await openOfficeCall({
+          // The token server mints only for a published Office, and this is the slug it
+          // checks (ADR-0006).
+          connect: () => createClient(userId, name, office.slug),
+          callId: office.id,
+        })
+        openCall.current = call
+        setPresence({ call, userId, name })
+      } catch (err) {
+        console.error(err)
+        setError(err instanceof Error ? err.message : "Could not join this office")
+      } finally {
+        setConnecting(false)
+      }
+    },
+    [connecting, ensureIdentity, office.id, office.slug],
+  )
+
+  const leave = useCallback(() => {
+    const call = openCall.current
+    openCall.current = null
+    setPresence(null)
+    void call?.release()
+  }, [])
+
+  if (!presence) {
+    return (
+      <JoinScreen
+        officeName={office.name}
+        layout={office.published_layout}
+        onJoin={(name) => void join(name)}
+        connecting={connecting}
+        error={error ?? auth.error}
+        auth={auth}
+      />
+    )
+  }
+
   return (
-    <div className="flex h-svh flex-col">
-      <header className="flex items-baseline justify-between gap-4 border-b px-6 py-3">
-        <h1 className="truncate text-lg font-semibold tracking-tight">{office.name}</h1>
-        <p className="text-muted-foreground shrink-0 text-sm">/{office.slug}</p>
-      </header>
-      <main className="min-h-0 flex-1 p-4">
-        <FloorPreview layout={office.published_layout} />
-      </main>
-    </div>
+    <StreamVideo client={presence.call.client}>
+      <StreamCall call={presence.call.call}>
+        <InsideOffice
+          layout={office.published_layout}
+          officeSlug={office.slug}
+          officeName={office.name}
+          localUserId={presence.userId}
+          localName={presence.name}
+          onLeave={leave}
+        />
+      </StreamCall>
+    </StreamVideo>
   )
 }

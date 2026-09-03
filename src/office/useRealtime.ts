@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react"
+import { CLOSE_NO_OFFICE } from "./relayClose"
 import type { Position } from "./types"
 
 export interface PeerState extends Position {
@@ -44,9 +45,13 @@ function wsUrl(): string {
  * Opens a WebSocket to the position relay and keeps peer target positions in a ref.
  * Positions are streamed here (not via Stream) because Stream's event endpoint is
  * rate-limited; this channel has no such limit.
+ *
+ * `officeSlug` is the Office's channel on the relay, and the relay refuses any slug no
+ * published Office answers to — so the socket is per Office, and peers never cross from
+ * one to another.
  */
 export function useRealtime(
-  officeId: string,
+  officeSlug: string,
   userId: string,
   name: string,
   onChat?: (m: ChatMessage) => void,
@@ -69,7 +74,7 @@ export function useRealtime(
       sockRef.current = sock
 
       sock.onopen = () => {
-        sock.send(JSON.stringify({ t: "join", office: officeId, id: userId, name }))
+        sock.send(JSON.stringify({ t: "join", office: officeSlug, id: userId, name }))
       }
 
       sock.onmessage = (ev) => {
@@ -102,9 +107,18 @@ export function useRealtime(
       // peers so nobody lingers as a frozen ghost, then reconnect. The movement hook's
       // idle heartbeat re-broadcasts our position, and the rejoin snapshot repopulates
       // peers — so once the new server is up everyone re-syncs without a page refresh.
-      sock.onclose = () => {
+      //
+      // The one close worth believing is the relay saying there is no Office at this
+      // address: that answer does not change on a second knock, and a client that retries
+      // it anyway spends the rest of the page's life reconnecting once a second. It gets
+      // here when an Office is deleted or unpublished while somebody is standing in it.
+      sock.onclose = (ev) => {
         if (disposed) return
         targetsRef.current.clear()
+        if (ev.code === CLOSE_NO_OFFICE) {
+          console.error("the relay says this office is no longer published; not reconnecting")
+          return
+        }
         retry = setTimeout(connect, 1000)
       }
       // An error is always followed by a close; let onclose drive the reconnect.
@@ -124,7 +138,7 @@ export function useRealtime(
       sockRef.current = null
       targetsRef.current.clear()
     }
-  }, [officeId, userId, name])
+  }, [officeSlug, userId, name])
 
   const send: Send = (x, y) => {
     const sock = sockRef.current

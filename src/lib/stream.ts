@@ -55,10 +55,3 @@ export async function createClient(
     tokenProvider: async () => (await fetchToken(userId, office)).token,
   })
 }
-
-/** Stable id from a display name (lowercase, url/token-safe) + short random suffix. */
-export function makeUserId(name: string): string {
-  const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
-  const suffix = Math.floor(performance.now() % 100000).toString(36)
-  return `${base || "guest"}-${suffix}`
-}

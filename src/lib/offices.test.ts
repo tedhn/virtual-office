@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { DEFAULT_LAYOUT } from "@/office/defaultLayout"
+import { EXAMPLE_LAYOUT } from "@/office/exampleLayout"
 import type { Layout } from "@/office/layout"
 import { newOfficeLayout } from "@/office/newOfficeLayout"
 import {
@@ -49,7 +49,7 @@ function fakeRows(taken: string[] = []) {
         name: "Acme",
         floor_width: 900,
         floor_height: 2000,
-        draft_layout: DEFAULT_LAYOUT,
+        draft_layout: EXAMPLE_LAYOUT,
         published_layout: null,
         layout_version: 3,
         ...patch,
@@ -66,7 +66,7 @@ describe("Creating an Office", () => {
       ownerId: OWNER,
       slug: "acme",
       name: "Acme HQ",
-      layout: DEFAULT_LAYOUT,
+      layout: EXAMPLE_LAYOUT,
     })
     expect(calls).toEqual([
       {
@@ -77,7 +77,7 @@ describe("Creating an Office", () => {
           name: "Acme HQ",
           floor_width: 900,
           floor_height: 2000,
-          draft_layout: DEFAULT_LAYOUT,
+          draft_layout: EXAMPLE_LAYOUT,
           published_layout: null,
         },
       },
@@ -91,7 +91,7 @@ describe("Creating an Office", () => {
       ownerId: OWNER,
       slug: "acme",
       name: "Acme HQ",
-      layout: DEFAULT_LAYOUT,
+      layout: EXAMPLE_LAYOUT,
     })
     expect(office.published_layout).toBe(null)
   })
@@ -107,7 +107,7 @@ describe("Creating an Office", () => {
   it("rejects a slug that could not survive being a URL", async () => {
     const { rows, calls } = fakeRows()
     await expect(
-      createOffice(rows, { ownerId: OWNER, slug: "Acme HQ!", name: "Acme", layout: DEFAULT_LAYOUT }),
+      createOffice(rows, { ownerId: OWNER, slug: "Acme HQ!", name: "Acme", layout: EXAMPLE_LAYOUT }),
     ).rejects.toThrow("slug")
     expect(calls).toEqual([])
   })
@@ -141,15 +141,15 @@ describe("Saving a draft Layout", () => {
 describe("Publishing a draft Layout", () => {
   it("promotes the draft to published and leaves the version to the database", async () => {
     const { rows, calls } = fakeRows()
-    const office = await publishDraft(rows, "office-1", DEFAULT_LAYOUT)
+    const office = await publishDraft(rows, "office-1", EXAMPLE_LAYOUT)
     expect(calls).toEqual([
       {
         op: "update",
         args: {
           id: "office-1",
           patch: {
-            published_layout: DEFAULT_LAYOUT,
-            draft_layout: DEFAULT_LAYOUT,
+            published_layout: EXAMPLE_LAYOUT,
+            draft_layout: EXAMPLE_LAYOUT,
             floor_width: 900,
             floor_height: 2000,
           },

@@ -11,7 +11,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AccountSignIn } from "@/auth/AccountSignIn"
-import { isAnonymous, type AuthSession } from "@/auth/session"
+import { isAnonymous } from "@/auth/session"
+import type { AuthGateway } from "@/auth/useAuthSession"
 import { createOfficeFromName } from "@/lib/offices"
 import { supabaseOfficeRows } from "@/lib/officeRows"
 import { officePath } from "@/lib/routes"
@@ -20,11 +21,7 @@ import { supabase } from "@/lib/supabase"
 import { navigate } from "@/lib/useRoute"
 
 interface HomeScreenProps {
-  /** The identity in the browser — anonymous for a Visitor, an account for a creator. */
-  session: AuthSession | null
-  /** Why there is no identity, when there is none to be had. */
-  error?: string | null
-  onRequestLink: (email: string) => Promise<void>
+  auth: AuthGateway
 }
 
 /**
@@ -32,7 +29,8 @@ interface HomeScreenProps {
  * for someone who arrived with a link — this screen exists for the other case: making an
  * Office of your own, which takes a real account (ADR-0003).
  */
-export function HomeScreen({ session, error, onRequestLink }: HomeScreenProps) {
+export function HomeScreen({ auth }: HomeScreenProps) {
+  const { session, error } = auth
   const owner = session && !isAnonymous(session) ? session.user.id : null
 
   return (
@@ -46,7 +44,7 @@ export function HomeScreen({ session, error, onRequestLink }: HomeScreenProps) {
 
       {owner && <CreateOfficeForm ownerId={owner} />}
 
-      <AccountSignIn session={session} onRequestLink={onRequestLink} />
+      <AccountSignIn session={session} onRequestLink={auth.requestMagicLink} />
 
       {error && <p className="text-destructive max-w-sm text-center text-sm">{error}</p>}
     </div>

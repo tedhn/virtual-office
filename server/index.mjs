@@ -8,7 +8,8 @@ import cors from "cors"
 import { WebSocketServer } from "ws"
 import { StreamClient } from "@stream-io/node-sdk"
 import { attachRelay } from "./relay.mjs"
-import { publishedOfficeCheck, supabaseConfig } from "./offices.mjs"
+import { officeDirectory, supabaseConfig } from "./offices.mjs"
+import { officeLayouts } from "./officeLayouts.mjs"
 import { tokenRoute } from "./token.mjs"
 
 // Separate Stream apps per environment: dev keys in .dev, prod keys in .prod, anything shared
@@ -39,18 +40,21 @@ if (!STREAM_API_KEY || !STREAM_API_SECRET) {
   process.exit(1)
 }
 
-// The token endpoint mints only for an Office that exists and is published, so the server
-// needs to be able to ask which those are. Refusing to start is deliberate: starting
-// without it would mean either minting for anything, or an endpoint that answers 503 to
-// every request with nobody having been told why.
+// Both halves of this server ask the database about Offices: the token endpoint mints
+// only for one that exists and is published, and the relay enforces a private Room's chat
+// against that Office's own published Layout. Refusing to start is deliberate: starting
+// without it would mean minting for anything and enforcing privacy against nothing.
 const supabase = supabaseConfig(process.env)
 if (!supabase) {
   console.error(
     "Missing SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY (the VITE_ pair is read too). The token " +
-      "endpoint needs them to tell a real Office from an invented one — see .env.example.",
+      "endpoint needs them to tell a real Office from an invented one, and the relay needs " +
+      "them to know which Rooms are private — see .env.example.",
   )
   process.exit(1)
 }
+
+const directory = officeDirectory(supabase)
 
 const client = new StreamClient(STREAM_API_KEY, STREAM_API_SECRET)
 
@@ -69,7 +73,7 @@ app.post(
         user_id: userId,
         validity_in_seconds: 60 * 60 * 24, // 24h
       }),
-    isOfficePublished: publishedOfficeCheck(supabase),
+    isOfficePublished: directory.isOfficePublished,
   }),
 )
 
@@ -92,11 +96,13 @@ if (existsSync(distDir)) {
 // Stream's custom-event REST endpoint is rate-limited (~3/s) and unsuitable for
 // continuous avatar movement, so positions ride this lightweight fan-out instead.
 // Media + proximity audio stay on Stream. The relay itself — including the chat
-// isolation it enforces — lives in ./relay.mjs.
+// isolation it enforces — lives in ./relay.mjs, and the Layouts it enforces that
+// isolation against come from ./officeLayouts.mjs, one per Office.
 // ---------------------------------------------------------------------------
 const httpServer = createServer(app)
 const wss = new WebSocketServer({ server: httpServer, path: "/ws" })
-const relay = attachRelay(wss)
+const layouts = officeLayouts({ fetchLayout: directory.publishedLayout })
+const relay = attachRelay(wss, { layoutFor: layouts.layoutFor })
 
 httpServer.listen(PORT, () => {
   console.log(`server on http://localhost:${PORT} (ws: /ws)`)

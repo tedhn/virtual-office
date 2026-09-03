@@ -38,10 +38,17 @@ yet: presence per office is the next piece of work.
   chat isolation is enforced: a message reaches only sockets whose reported position
   shares the sender's room-context. It computes that from `src/office/layout.ts`, loaded
   straight from TypeScript source (see ADR-0004), so privacy has a single implementation.
-  `relay.test.mjs` drives a real socket server and covers the isolation rules.
-- `src/office/` — the world: `useMovement` (keyboard + broadcast via
-  `call.sendCustomEvent`), `usePositions` (`call.on('custom')` → remote positions),
-  `useProximityAudio` (distance → `speaker.setParticipantVolume`), and the floor / avatars.
+  A socket is scoped to one office by its slug, and a slug no published office answers to
+  is refused, so peers never cross from one office to another. `relay.test.mjs` drives a
+  real socket server and covers the isolation rules.
+- `server/officeLayouts.mjs` — where the relay gets those layouts: one per office, fetched
+  from `offices_public` and remembered for 30 seconds. The relay keeps no copy of its own,
+  so that interval is the whole of how stale enforcement can get (ADR-0002).
+- `src/office/` — the world: `useMovement` (keyboard + broadcast over the relay),
+  `usePositions` (interpolated remote positions), `useProximityAudio` (distance →
+  `speaker.setParticipantVolume`), and the floor / avatars.
+- `src/office/officeCall.ts` — an office's Stream call, created the first time somebody
+  walks in and released when they walk out, so an empty office holds nothing open.
 - `src/office/newOfficeLayout.ts` — what a new office starts as: an empty floor with one
   spawn zone, which is the least that can be published, since an office with nowhere to
   arrive is one nobody can enter.
@@ -49,15 +56,17 @@ yet: presence per office is the next piece of work.
   derivation and collision. Every function takes the `Layout` (floor dimensions + zones)
   it operates on, so an office's floorplan is data rather than code. A zone is one of five
   kinds — room, table, wall, spawn, exterior — with privacy and table styling as flags on
-  the zone. `defaultLayout.ts` holds the floorplan this app currently ships;
-  `layout.test.ts` covers the geometry.
+  the zone. `layout.test.ts` covers the geometry, against `exampleLayout.ts` — one
+  hand-authored office kept as a fixture, imported by tests and by nothing that runs.
 - `src/office/FloorPreview.tsx` — an office's floor with nobody on it, fitted whole into
-  the viewport. `OfficeFloor` is the other way to draw a layout: zoomed to a person and
-  scrolled to follow them. `FloorLayout` draws either, and without click handlers it draws
-  something to look at rather than something to walk on.
-- The pieces that made the one hardcoded office walkable — `JoinScreen`, `OfficeRoom`,
-  `useRealtime` — are still here and still tested, waiting to be pointed at an office
-  rather than at a constant.
+  the viewport; the join screen shows the office you are about to walk into with it.
+  `OfficeFloor` is the other way to draw a layout: zoomed to a person and scrolled to
+  follow them. `FloorLayout` draws either, and without click handlers it draws something
+  to look at rather than something to walk on.
+- `src/office/InsideOffice.tsx` — standing in one: the floor, everyone on it, and the
+  controls for being one of them. Every office-specific thing arrives as a prop, so there
+  is no floorplan and no office id in the file. ("Room" is reserved for a zone inside an
+  office — see `CONTEXT.md` — which is why this is not called `OfficeRoom`.)
 
 ### Identity and offices
 

@@ -8,8 +8,9 @@ export interface Size {
   height: number
 }
 
-/** Fixed office floor size in px (portrait — same for every client, so world
- * coordinates line up across peers). Shape matches the layout sketch. */
+/** The Floor a new Office starts with, in px. An Office's own Floor travels with its
+ * Layout — this is only the size one is given to begin with. Every client of the same
+ * Office shares that Floor, so world coordinates line up across peers. */
 export const FLOOR_WIDTH = 900
 export const FLOOR_HEIGHT = 2000
 export const FLOOR: Size = { width: FLOOR_WIDTH, height: FLOOR_HEIGHT }

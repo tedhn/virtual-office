@@ -22,7 +22,7 @@ interface VideoModalProps {
 /**
  * Full-screen overlay showing a single participant's camera or shared screen uncropped.
  * Opened by clicking an avatar that's sharing video or a screen; closes on backdrop click,
- * the X, or Esc. Visibility is gated by the caller (OfficeRoom) to the same room-context
+ * the X, or Esc. Visibility is gated by the caller (InsideOffice) to the same room-context
  * rule as the inline video.
  *
  * The box is sized to the feed's TRUE aspect ratio (measured off the <video> element, since
@@ -177,7 +177,7 @@ export function VideoModal({
             trackType={trackType}
             ParticipantViewUI={null}
             mirror={trackType === "videoTrack" && isSelf}
-            // Video only — OfficeRoom's audio rig is the single playback path, and it decides
+            // Video only — InsideOffice's audio rig is the single playback path, and it decides
             // who hears the screen (watchers only). Without this, opening the modal would add a
             // second copy of the mic and screen-share audio.
             muteAudio

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { sendMagicLink } from "@/auth/session"
 import { createOffice } from "@/lib/offices"
 import { supabaseOfficeRows } from "@/lib/officeRows"
-import { DEFAULT_LAYOUT } from "@/office/defaultLayout"
+import { EXAMPLE_LAYOUT } from "@/office/exampleLayout"
 import { configured, missingConfigWarning, publishableKey, secretKey, supabaseUrl } from "./testEnv"
 
 /**
@@ -115,7 +115,7 @@ describe.skipIf(!configured)("magic-link sign-in", () => {
       ownerId: userId!,
       slug: `magic-${crypto.randomUUID().slice(0, 8)}`,
       name: "Magic HQ",
-      layout: DEFAULT_LAYOUT,
+      layout: EXAMPLE_LAYOUT,
     })
     expect(office.owner_id).toBe(userId)
   })

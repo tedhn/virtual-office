@@ -3,6 +3,25 @@ import { supabase } from "@/lib/supabase"
 import { ensureAnonymousSession, sendMagicLink, type AuthSession } from "./session"
 
 /**
+ * Everything a screen needs from the signed-in identity: who they are, why they are
+ * nobody if they are, how to insist on an identity before acting, and how to trade up to
+ * a real account.
+ *
+ * Named because these four travel together everywhere they go — App hands the whole thing
+ * to whichever screen the URL asks for, rather than four props at every stop.
+ */
+export interface AuthGateway {
+  /** The identity in the browser — anonymous for a Visitor, an account for an Owner. */
+  session: AuthSession | null
+  /** Why there is no identity, when there is none to be had. */
+  error: string | null
+  /** The identity to act as, waited for rather than assumed. */
+  ensureIdentity: () => Promise<AuthSession | null>
+  /** Email a magic link back to where the person is standing now. */
+  requestMagicLink: (email: string) => Promise<void>
+}
+
+/**
  * The signed-in identity, for the UI.
  *
  * A Visitor is signed in anonymously as the app loads, without being asked and without a
@@ -10,7 +29,7 @@ import { ensureAnonymousSession, sendMagicLink, type AuthSession } from "./sessi
  * Supabase is not configured, this reports that and stops: the rest of the app still
  * runs, it just has no identity to hang an Office off.
  */
-export function useAuthSession() {
+export function useAuthSession(): AuthGateway {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [error, setError] = useState<string | null>(null)
 

@@ -25,7 +25,7 @@ const HALF = AVATAR_SIZE / 2
  * Volume here is per-participant, covering their mic and their shared screen's audio alike —
  * which is why the exemption is keyed on WATCHING and not on sharing: a sharer exempted by
  * the mere act of sharing is heard by the whole floor, including everyone who never opened
- * the screen. Screen audio reaches only watchers because OfficeRoom mounts the
+ * the screen. Screen audio reaches only watchers because InsideOffice mounts the
  * screenShareAudioTrack element for the watched sharer alone.
  * Room isolation still applies, in both directions: a sharer sealed in a room stays inaudible
  * from outside, and the watch exemptions only fire inside your own room-context.

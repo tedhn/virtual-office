@@ -2,9 +2,13 @@ import type { Layout } from "./layout.ts"
 import { FLOOR } from "./types.ts"
 
 /**
- * The office this app ships with — a fixture standing in for the Layout an Owner will
- * eventually author, not the geometry module's only reality. Everything that needs a
- * floorplan takes one as an argument; this is simply the one currently handed in.
+ * One hand-authored Office, kept as a test fixture.
+ *
+ * Nothing in the running app imports this. It was the single office the product used to
+ * be, and it survives because it is a richer Floor than anything a test would bother
+ * writing out — five Rooms, private and not, tables with blocked seat edges, an L-shaped
+ * footprint — which makes it a good thing to check geometry and chat isolation against.
+ * Wiring it back into a screen would undo the point of Offices being data.
  *
  * Coordinates are normalized (0..1) against `floor`. The footprint is an L: the main
  * office is the tall block to the right of x≈0.34; the two non-private Rooms (T1, T2 —
@@ -15,7 +19,7 @@ import { FLOOR } from "./types.ts"
  * dining-styled table D up top, three work tables down the right, and the Spawn Zone in
  * the corridor beside the tables where Visitors arrive.
  */
-export const DEFAULT_LAYOUT: Layout = {
+export const EXAMPLE_LAYOUT: Layout = {
   floor: FLOOR,
   zones: [
     { id: "wall-beside-c-top", kind: "wall", rect: { x: 0.0, y: 0.28, w: 0.3, h: 0.008 } },

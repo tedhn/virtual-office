@@ -1,7 +1,7 @@
 // Relative imports carry an explicit `.ts` extension, and nothing here is a third-party
-// or DOM import: this module is written to ADR-0004's rules so the server can load it
-// from source the way it already loads the geometry, once it validates the Layouts it
-// fetches. Nothing on the server imports it yet.
+// or DOM import: this module lives under ADR-0004's rules, because `server/officeLayouts.mjs`
+// loads it from source the way the relay loads the geometry. One answer to "is this a
+// Layout?" for the browser that writes one and the server that enforces privacy with it.
 import type { Layout, ZoneKind } from "./layout.ts"
 
 /**

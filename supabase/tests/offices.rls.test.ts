@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createOffice, createOfficeFromName, publishDraft, type Office } from "@/lib/offices"
 import { readPublishedOffice, supabaseOfficeRows } from "@/lib/officeRows"
 import { slugFrom } from "@/lib/slug"
-import { DEFAULT_LAYOUT } from "@/office/defaultLayout"
+import { EXAMPLE_LAYOUT } from "@/office/exampleLayout"
 import type { Layout } from "@/office/layout"
 import { newOfficeLayout } from "@/office/newOfficeLayout"
 import { configured, missingConfigWarning, publishableKey, secretKey, supabaseUrl } from "./testEnv"
@@ -60,7 +60,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
   const createdUsers: string[] = []
 
   /** An Office owned by `owner`, left unpublished. */
-  async function anOffice(name = "Acme HQ", layout: Layout = DEFAULT_LAYOUT): Promise<Office> {
+  async function anOffice(name = "Acme HQ", layout: Layout = EXAMPLE_LAYOUT): Promise<Office> {
     return createOffice(supabaseOfficeRows(owner), {
       ownerId,
       slug: uniqueSlug("acme"),
@@ -96,7 +96,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
       published_layout: null,
       layout_version: 0,
     })
-    expect(data?.draft_layout).toEqual(DEFAULT_LAYOUT)
+    expect(data?.draft_layout).toEqual(EXAMPLE_LAYOUT)
   })
 
   it("hides an Office from everyone but its Owner", async () => {
@@ -131,7 +131,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
         ownerId,
         slug: uniqueSlug("forged"),
         name: "Forged",
-        layout: DEFAULT_LAYOUT,
+        layout: EXAMPLE_LAYOUT,
       }),
     ).rejects.toThrow()
   })
@@ -142,7 +142,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
         ownerId: (await visitor.auth.getUser()).data.user!.id,
         slug: uniqueSlug("transient"),
         name: "Transient",
-        layout: DEFAULT_LAYOUT,
+        layout: EXAMPLE_LAYOUT,
       }),
     ).rejects.toThrow()
   })
@@ -150,19 +150,19 @@ describe.skipIf(!configured)("offices row-level security", () => {
   it("shows a Visitor a published Layout, and no unpublished Office at all", async () => {
     const draftOnly = await anOffice("Unpublished")
     const published = await anOffice("Published")
-    await publishDraft(supabaseOfficeRows(owner), published.id, DEFAULT_LAYOUT)
+    await publishDraft(supabaseOfficeRows(owner), published.id, EXAMPLE_LAYOUT)
 
     expect(await readPublishedOffice(visitor, published.slug)).toMatchObject({
       slug: published.slug,
       name: "Published",
-      published_layout: DEFAULT_LAYOUT,
+      published_layout: EXAMPLE_LAYOUT,
     })
     expect(await readPublishedOffice(visitor, draftOnly.slug)).toBeNull()
   })
 
   it("never hands a draft Layout to a Visitor", async () => {
     const office = await anOffice("Published")
-    await publishDraft(supabaseOfficeRows(owner), office.id, DEFAULT_LAYOUT)
+    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
 
     // The published surface has no draft column to ask for.
     const asked = await visitor.from("offices_public").select("draft_layout").eq("slug", office.slug)
@@ -184,12 +184,12 @@ describe.skipIf(!configured)("offices row-level security", () => {
     const office = await anOffice()
     expect(office.layout_version).toBe(0)
 
-    const first = await publishDraft(supabaseOfficeRows(owner), office.id, DEFAULT_LAYOUT)
+    const first = await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
     expect(first.layout_version).toBe(1)
 
     const moved: Layout = {
-      ...DEFAULT_LAYOUT,
-      zones: DEFAULT_LAYOUT.zones.filter((z) => z.kind !== "wall"),
+      ...EXAMPLE_LAYOUT,
+      zones: EXAMPLE_LAYOUT.zones.filter((z) => z.kind !== "wall"),
     }
     const second = await publishDraft(supabaseOfficeRows(owner), office.id, moved)
     expect(second.layout_version).toBe(2)
@@ -222,7 +222,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
       name: "Mismatched",
       floor_width: 640,
       floor_height: 480,
-      draft_layout: DEFAULT_LAYOUT,
+      draft_layout: EXAMPLE_LAYOUT,
       published_layout: null,
     })
     expect(error?.message ?? "").toContain("offices_draft_floor_matches")
@@ -240,7 +240,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
   })
   it("stops showing an Office the moment its Owner deletes it", async () => {
     const office = await anOffice("Doomed")
-    await publishDraft(supabaseOfficeRows(owner), office.id, DEFAULT_LAYOUT)
+    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
     expect(await readPublishedOffice(visitor, office.slug)).not.toBeNull()
 
     const { error } = await owner
@@ -264,7 +264,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
         ownerId,
         slug: office.slug,
         name: "Squatter",
-        layout: DEFAULT_LAYOUT,
+        layout: EXAMPLE_LAYOUT,
       }),
     ).rejects.toThrow(/duplicate key|offices_slug_key/)
   })

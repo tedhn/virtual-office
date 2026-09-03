@@ -114,7 +114,7 @@ export function Avatar({
               ParticipantViewUI={null}
               mirror={isSelf}
               // Video only. ParticipantView otherwise mounts its own mic + screen-share audio
-              // elements, which would play the same tracks a second time alongside OfficeRoom's
+              // elements, which would play the same tracks a second time alongside InsideOffice's
               // single audio rig — doubled volume and echo, worse per extra view — and would
               // leak screen audio to people who never opened the screen.
               muteAudio

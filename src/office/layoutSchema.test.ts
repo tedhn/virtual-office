@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { DEFAULT_LAYOUT } from "./defaultLayout"
+import { EXAMPLE_LAYOUT } from "./exampleLayout"
 import { validateLayout, validatePublishableLayout } from "./layoutSchema"
 
 describe("A Layout's shape", () => {
-  it("accepts the Layout this app ships", () => {
-    expect(validateLayout(DEFAULT_LAYOUT)).toEqual({ ok: true, layout: DEFAULT_LAYOUT })
+  it("accepts the hand-authored example Layout", () => {
+    expect(validateLayout(EXAMPLE_LAYOUT)).toEqual({ ok: true, layout: EXAMPLE_LAYOUT })
   })
 
   it("rejects a value that is not an object", () => {
@@ -16,7 +16,7 @@ describe("A Layout's shape", () => {
 })
 
 describe("Floor dimensions", () => {
-  const zones = DEFAULT_LAYOUT.zones
+  const zones = EXAMPLE_LAYOUT.zones
 
   it("rejects a floor with no dimensions", () => {
     expect(validateLayout({ zones })).toEqual({
@@ -172,8 +172,8 @@ describe("Publishing a Layout", () => {
   const spawn = { id: "spawn", kind: "spawn", rect: RECT }
   const wall = { id: "w", kind: "wall", rect: { x: 0.5, y: 0.5, w: 0.1, h: 0.1 } }
 
-  it("accepts the Layout this app ships", () => {
-    expect(validatePublishableLayout(DEFAULT_LAYOUT).ok).toBe(true)
+  it("accepts the hand-authored example Layout", () => {
+    expect(validatePublishableLayout(EXAMPLE_LAYOUT).ok).toBe(true)
   })
 
   it("rejects an Office nobody can arrive in", () => {

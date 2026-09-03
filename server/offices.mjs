@@ -6,8 +6,9 @@ import { createClient } from "@supabase/supabase-js"
  * It reads `offices_public`, the same view a browser reads: published Offices only, and
  * no draft column to leak (ADR-0005). That means the publishable key is enough — the
  * server needs no privilege here that a Visitor does not already have, so it asks for
- * none. ADR-0002's service-role fetch is a separate errand, for the Layout the relay
- * enforces privacy against.
+ * none. That applies to the published Layout the relay enforces privacy against as much
+ * as to the token gate's existence check: both are things anyone holding the Office's
+ * link may already read (see ADR-0002's amendment).
  */
 
 /**
@@ -16,7 +17,8 @@ import { createClient } from "@supabase/supabase-js"
  * a fallback so a project configured for the app needs nothing extra for the server.
  *
  * Returns null when nothing is configured, which the caller is expected to treat as fatal:
- * without it the token endpoint cannot tell a real Office from an invented one.
+ * without it the token endpoint cannot tell a real Office from an invented one, and the
+ * relay cannot tell which Rooms are private.
  */
 export function supabaseConfig(env) {
   const url = env.SUPABASE_URL ?? env.VITE_SUPABASE_URL
@@ -29,25 +31,42 @@ export function supabaseConfig(env) {
 }
 
 /**
- * Answers the one question the token endpoint has: is there an Office at this address?
+ * The two questions the server asks about an Office, over one Supabase client.
  *
- * "Published and not deleted" is what the view selects, so there is nothing to check here
- * beyond whether a row came back — and nothing else about the Office is read, because
- * nothing else is any of the gate's business.
+ * They are kept apart rather than folded into one lookup because they are asked for
+ * different reasons and want different amounts of the row: the token gate only needs to
+ * know that an Office is there (ADR-0006), and reading a whole Layout to answer that
+ * would be reading something that is none of the gate's business.
  *
- * Throws when the database cannot be reached. A caller must not read that as "no such
+ * Both throw when the database cannot be reached. A caller must not read that as "no such
  * Office": not knowing is not the same answer as no.
  */
-export function publishedOfficeCheck({ url, key }) {
+export function officeDirectory({ url, key }) {
   const client = createClient(url, key, { auth: { persistSession: false } })
 
-  return async function isOfficePublished(slug) {
-    const { data, error } = await client
-      .from("offices_public")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle()
-    if (error) throw new Error(error.message)
-    return data !== null
+  const rowAt = (slug, columns) =>
+    client.from("offices_public").select(columns).eq("slug", slug).maybeSingle()
+
+  return {
+    /**
+     * Is there an Office at this address? "Published and not deleted" is what the view
+     * selects, so there is nothing to check beyond whether a row came back.
+     */
+    async isOfficePublished(slug) {
+      const { data, error } = await rowAt(slug, "id")
+      if (error) throw new Error(error.message)
+      return data !== null
+    },
+
+    /**
+     * The Layout Visitors of this Office are standing on, or null if no published Office
+     * answers to the address. What comes back is whatever JSON is in the column — the
+     * caller is the one that decides whether it is a Layout.
+     */
+    async publishedLayout(slug) {
+      const { data, error } = await rowAt(slug, "published_layout")
+      if (error) throw new Error(error.message)
+      return data ? data.published_layout : null
+    },
   }
 }
