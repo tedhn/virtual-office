@@ -18,7 +18,9 @@ Point the app at a Supabase project (see **Identity and offices** below):
 what reaches the browser — a `NEXT_PUBLIC_…` key pasted from the dashboard does not), and
 `npm run db:push` applies `supabase/migrations` to it. The token server reads that same
 pair, and refuses to start without it: it has to be able to tell a real office from an
-invented one before it mints anything (ADR-0006).
+invented one before it mints anything (ADR-0006). It also needs `SUPABASE_SECRET_KEY`,
+which must **not** carry a `VITE_` prefix and must never reach the browser: every write to
+an office goes through the server now, and that is the key it writes with (ADR-0011).
 
 Sign in with an email and password, name an office, and you land on it at its own URL — an empty
 floor with a single spawn zone, and a link you can share. Author it at `/<slug>/edit`, and
@@ -124,33 +126,45 @@ enforces privacy against.
   being marked deleted, never by having its row removed — the row is what keeps its slug
   spent, so a shared link can never come to mean somewhere else — and no policy grants
   DELETE at all, so that is the database's rule rather than the client's manners.
-- **Row-level security is the boundary.** The table is owner-only for every operation.
-  Row-level security filters rows and a draft is a *column*, so the public read surface
-  is the `offices_public` view, which has no draft column to leak and shows only
-  published Offices. Creating an Office is refused outright for an anonymous identity.
-- `src/lib/publishing.ts` — the other half of publishing and deleting: the calls an owner's
-  browser makes to the token server around the database write, over `src/lib/api.ts` (which
-  is just where the API's base URL lives, shared with `stream.ts`). None is load-bearing —
-  the office is published, or deleted, the moment the row is written.
+- **Row-level security is the boundary for reads.** The table is owner-only, and because
+  row-level security filters rows while a draft is a *column*, the public read surface is
+  the `offices_public` view — no draft column to leak, and only published offices in it
+  (ADR-0005).
+- **Writes are the server's, and nobody else's.** `insert` and `update` on `offices` are
+  revoked from the keys a browser can hold, because the anon key is public and a rule the
+  browser enforces on itself is a rule anyone may decline to follow (ADR-0011). The browser
+  asks `server/officeWrites.mjs` instead, which verifies the caller's JWT, refuses a write
+  to an office they do not own, runs the same Layout schema the editor runs, and writes with
+  the secret key. Creating an office is still refused outright for an anonymous identity
+  (ADR-0003) — that rule moved into the server with the write.
+- `src/lib/officeApi.ts` — how the browser changes an office: five calls to the token
+  server, each carrying the session's access token, over `src/lib/api.ts` (which is just
+  where the API's base URL lives, shared with `stream.ts`). These *are* the write, so a
+  failure means nothing changed.
+- `src/lib/publishing.ts` — the other half of publishing and deleting, over the same base
+  URL: how many people are inside, and the nudges that tell the relay a layout has changed
+  or an office is gone. None is load-bearing — the office is published, or deleted, the
+  moment the row is written.
 - `src/OwnOffices.tsx` — the owner's list of their offices, and the two things they can do
   to one from outside it: rename it, which leaves the address every shared link uses alone,
   and delete it, which asks first because the address is then spent for good and anybody
-  inside is disconnected. Both are ordinary writes; what makes them owner-only is that the
-  database hands nobody else the row (ADR-0005).
-- `src/lib/offices.ts` — the write path. A Layout is validated against
-  `src/office/layoutSchema.ts` before a request is issued: a draft only has to be
-  well-formed, publishing also has to describe an Office that works — one spawn zone,
+  inside is disconnected. Both go through the server like every other write, which is what
+  makes them owner-only: it refuses a write to an office the caller does not own, and hands
+  back the same answer it gives for an office that is not there.
+- `src/lib/offices.ts` — the write path, and it runs on the server. A Layout is validated
+  against `src/office/layoutSchema.ts` before a row is written: a draft only has to be
+  well-formed, publishing also has to describe an office that works — one spawn zone,
   nothing solid under it, and no two rooms over the same floor (which would make
-  room-context, and so privacy, depend on zone order).
+  room-context, and so privacy, depend on zone order). `server/officeWrites.mjs` loads this
+  module from TypeScript source the way the relay loads the geometry (ADR-0004), so there is
+  one implementation of what a Layout is and it runs where a caller cannot get past it.
   The database keeps a backstop of its own — a Layout must be a document with a `zones`
   array and a Floor matching the row's floor columns — but it stops short of checking
-  Zones, so that the schema has one implementation and not a second one in SQL. Anyone
-  holding the (public) anon key can therefore still write well-shaped nonsense; making
-  validation a real boundary means moving Layout writes behind the token server, which
-  already loads the shared module from source.
-- `supabase/tests/offices.rls.test.ts` proves the rules against a real database — owner
-  writes succeed, strangers fail, a Visitor sees published Layouts and never a draft. It
-  skips unless `.env` names a Supabase to run against.
+  Zones, so that the schema is not implemented a second time in SQL.
+- `supabase/tests/offices.rls.test.ts` proves what the database allows against a real one:
+  a browser cannot write at all, a visitor sees published Layouts and never a draft, a slug
+  stays spent. `server/officeWrites.database.test.mjs` proves the other side — real tokens,
+  real ownership. Both skip unless `.env` names a Supabase to run against.
 
 Against a hosted project — the usual case:
 

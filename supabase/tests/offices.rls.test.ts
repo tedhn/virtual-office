@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+import type { SupabaseClient } from "@supabase/supabase-js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   createOffice,
@@ -19,14 +19,22 @@ import { slugFrom } from "@/lib/slug"
 import { EXAMPLE_LAYOUT } from "@/office/exampleLayout"
 import type { Layout } from "@/office/layout"
 import { newOfficeLayout } from "@/office/newOfficeLayout"
-import { configured, missingConfigWarning, publishableKey, secretKey, supabaseUrl } from "./testEnv"
+import { account, anonymousVisitor, asAdmin, asAnon } from "./accounts"
+import { configured, missingConfigWarning } from "./testEnv"
 
 /**
- * Row-level security, proven against a real Supabase rather than argued about.
+ * What the database itself allows, proven against a real Supabase rather than argued about.
  *
- * These are the rules the product cannot be wrong about: an Owner authors their own
- * Office and nobody else's, a shared link shows a published Layout and never a draft,
- * and an anonymous Visitor cannot create an Office at all (ADR-0003).
+ * These are the rules the product cannot be wrong about: a shared link shows a published
+ * Layout and never a draft, an Office is invisible to everyone but its Owner, and a slug
+ * belongs permanently to the Office it first named.
+ *
+ * Writing is no longer among them. `insert` and `update` on `offices` are revoked from the
+ * keys a browser can hold, so every write here goes through `supabaseOfficeRows(admin)` —
+ * the store the token server holds, with the secret key (ADR-0011). Who may perform each
+ * write is proven where that decision now lives, in `server/officeWrites.database.test.mjs`.
+ * What is proven here is the half that has to remain true underneath it: reads are governed
+ * by row-level security exactly as before, and a browser cannot write at all.
  *
  * Point them at a database with `supabase/migrations` applied — `npx supabase start` for
  * a local stack, or a linked project — via .env. They skip when none is configured, so
@@ -37,32 +45,15 @@ if (!configured) console.warn(`[offices.rls] skipped: ${missingConfigWarning}`)
 /** A slug is permanent and unique, so every run needs its own. */
 const uniqueSlug = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`
 
-const asAnon = () => createClient(supabaseUrl!, publishableKey!, { auth: { persistSession: false } })
-
-const asAdmin = () => createClient(supabaseUrl!, secretKey!, { auth: { persistSession: false } })
-
-/** A confirmed account, signed in — the "real, recoverable account" of ADR-0003. */
-async function account(admin: SupabaseClient): Promise<{ client: SupabaseClient; id: string }> {
-  const email = `${crypto.randomUUID()}@example.com`
-  const password = crypto.randomUUID()
-  const created = await admin.auth.admin.createUser({ email, password, email_confirm: true })
-  if (created.error) throw new Error(created.error.message)
-
-  const client = asAnon()
-  const signedIn = await client.auth.signInWithPassword({ email, password })
-  if (signedIn.error) throw new Error(signedIn.error.message)
-  return { client, id: created.data.user.id }
-}
-
-/** An anonymous identity, the one a Visitor is given without being asked. */
-async function anonymousVisitor(): Promise<SupabaseClient> {
-  const client = asAnon()
-  const { error } = await client.auth.signInAnonymously()
-  if (error) {
-    throw new Error(`anonymous sign-in failed (${error.message}) — enable it for this project`)
-  }
-  return client
-}
+/**
+ * A Layout a client would happily send and no Office could ever use. Well shaped enough for
+ * the database's own checks — an object with a `zones` array and a numeric Floor — and
+ * nonsense past that, which is exactly the gap the server closes.
+ */
+const NONSENSE_ZONES = {
+  floor: { width: 2000, height: 1200 },
+  zones: [{ id: "wat", kind: "teleporter", rect: { x: 5, y: -1, w: 0, h: 99 } }],
+} as unknown as Layout
 
 describe.skipIf(!configured)("offices row-level security", () => {
   let admin: SupabaseClient
@@ -72,9 +63,12 @@ describe.skipIf(!configured)("offices row-level security", () => {
   let ownerId: string
   const createdUsers: string[] = []
 
+  /** The row store the token server holds — the only one with anything left to write with. */
+  const asServer = () => supabaseOfficeRows(admin)
+
   /** An Office owned by `owner`, left unpublished. */
   async function anOffice(name = "Acme HQ", layout: Layout = EXAMPLE_LAYOUT): Promise<Office> {
-    return createOffice(supabaseOfficeRows(owner), {
+    return createOffice(asServer(), {
       ownerId,
       slug: uniqueSlug("acme"),
       name,
@@ -93,7 +87,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
     stranger = second.client
     createdUsers.push(second.id)
 
-    visitor = await anonymousVisitor()
+    visitor = (await anonymousVisitor()).client
   }, 30_000)
 
   afterAll(async () => {
@@ -119,17 +113,59 @@ describe.skipIf(!configured)("offices row-level security", () => {
     expect(data).toEqual([])
   })
 
-  it("refuses a write by anyone but the Owner", async () => {
+  it("refuses an update from a browser, whoever is holding it", async () => {
+    // Not "a stranger may not write to your Office" any more. `insert` and `update` are
+    // revoked from `anon` and `authenticated` alike, so the Owner's own client is refused
+    // exactly as a stranger's is, and the difference between them stopped being the
+    // database's business (ADR-0011).
     const office = await anOffice()
+
+    await expect(supabaseOfficeRows(owner).update(office.id, { name: "Mine" })).rejects.toThrow(
+      /permission denied/,
+    )
     await expect(
       supabaseOfficeRows(stranger).update(office.id, { name: "Stolen" }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/permission denied/)
 
     const { data } = await owner.from("offices").select("name").eq("id", office.id).single()
     expect(data?.name).toBe("Acme HQ")
   })
 
-  it("refuses a delete by anyone but the Owner", async () => {
+  it("refuses a Layout full of nonsense Zones from a browser holding the public key", async () => {
+    // The write this whole arrangement exists to stop, attempted the way it would really be
+    // attempted: past `offices.ts` entirely, straight at PostgREST. The document is well
+    // shaped enough for every check the database makes on its own — an object, a `zones`
+    // array, a numeric Floor agreeing with the columns — and its Zones are gibberish.
+    // Nothing in SQL knows what a Zone is and nothing should (ADR-0004), so the answer has
+    // to be that this caller cannot write the column at all.
+    const office = await anOffice()
+    await publishDraft(asServer(), office.id, EXAMPLE_LAYOUT)
+
+    const { error } = await owner
+      .from("offices")
+      .update({ published_layout: NONSENSE_ZONES })
+      .eq("id", office.id)
+    expect(error?.message ?? "").toMatch(/permission denied/)
+
+    // And the Floor the people inside are standing on is exactly where it was.
+    const seen = await readPublishedOffice(visitor, office.slug)
+    expect(seen?.published_layout).toEqual(EXAMPLE_LAYOUT)
+  })
+
+  it("refuses an insert from a browser, so no Office is created behind the server's back", async () => {
+    for (const client of [owner, stranger, visitor]) {
+      await expect(
+        createOffice(supabaseOfficeRows(client), {
+          ownerId,
+          slug: uniqueSlug("smuggled"),
+          name: "Smuggled",
+          layout: EXAMPLE_LAYOUT,
+        }),
+      ).rejects.toThrow(/permission denied/)
+    }
+  })
+
+  it("removes nothing when anybody tries to delete the row itself", async () => {
     const office = await anOffice()
     const { error } = await stranger.from("offices").delete().eq("id", office.id)
     expect(error).toBeNull() // row-level security filters the delete rather than failing it
@@ -138,32 +174,10 @@ describe.skipIf(!configured)("offices row-level security", () => {
     expect(data).toHaveLength(1)
   })
 
-  it("refuses to create an Office owned by someone else", async () => {
-    await expect(
-      createOffice(supabaseOfficeRows(stranger), {
-        ownerId,
-        slug: uniqueSlug("forged"),
-        name: "Forged",
-        layout: EXAMPLE_LAYOUT,
-      }),
-    ).rejects.toThrow()
-  })
-
-  it("refuses to let an anonymous Visitor create an Office", async () => {
-    await expect(
-      createOffice(supabaseOfficeRows(visitor), {
-        ownerId: (await visitor.auth.getUser()).data.user!.id,
-        slug: uniqueSlug("transient"),
-        name: "Transient",
-        layout: EXAMPLE_LAYOUT,
-      }),
-    ).rejects.toThrow()
-  })
-
   it("shows a Visitor a published Layout, and no unpublished Office at all", async () => {
     const draftOnly = await anOffice("Unpublished")
     const published = await anOffice("Published")
-    await publishDraft(supabaseOfficeRows(owner), published.id, EXAMPLE_LAYOUT)
+    await publishDraft(asServer(), published.id, EXAMPLE_LAYOUT)
 
     expect(await readPublishedOffice(visitor, published.slug)).toMatchObject({
       slug: published.slug,
@@ -175,7 +189,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
 
   it("never hands a draft Layout to a Visitor", async () => {
     const office = await anOffice("Published")
-    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+    await publishDraft(asServer(), office.id, EXAMPLE_LAYOUT)
 
     // The published surface has no draft column to ask for.
     const asked = await visitor.from("offices_public").select("draft_layout").eq("slug", office.slug)
@@ -189,7 +203,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
   it("keeps a slug attached to the Office it first named", async () => {
     const office = await anOffice()
     await expect(
-      supabaseOfficeRows(owner).update(office.id, { slug: uniqueSlug("renamed") }),
+      asServer().update(office.id, { slug: uniqueSlug("renamed") }),
     ).rejects.toThrow(/permanent/)
   })
 
@@ -197,34 +211,34 @@ describe.skipIf(!configured)("offices row-level security", () => {
     const office = await anOffice()
     expect(office.layout_version).toBe(0)
 
-    const first = await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+    const first = await publishDraft(asServer(), office.id, EXAMPLE_LAYOUT)
     expect(first.layout_version).toBe(1)
 
     const moved: Layout = {
       ...EXAMPLE_LAYOUT,
       zones: EXAMPLE_LAYOUT.zones.filter((z) => z.kind !== "wall"),
     }
-    const second = await publishDraft(supabaseOfficeRows(owner), office.id, moved)
+    const second = await publishDraft(asServer(), office.id, moved)
     expect(second.layout_version).toBe(2)
   })
 
   it("refuses a document that is not a Layout, even from its Owner", async () => {
     const office = await anOffice()
-    // Straight past the write path in `offices.ts`, which is what a caller holding the
-    // public anon key can do: the database has to refuse this on its own.
-    const { error } = await owner
+    // Straight past the write path in `offices.ts`, which is what the secret key can do:
+    // the database has to refuse this on its own, since nothing above it is left to.
+    const { error } = await admin
       .from("offices")
       .update({ published_layout: { not: "a layout" } })
       .eq("id", office.id)
     expect(error?.message ?? "").toMatch(/violates check constraint/)
 
-    const { data } = await owner.from("offices").select("published_layout").eq("id", office.id)
+    const { data } = await admin.from("offices").select("published_layout").eq("id", office.id)
     expect(data?.[0]?.published_layout).toBeNull()
   })
 
   it("refuses an empty document as a draft Layout", async () => {
     const office = await anOffice()
-    const { error } = await owner.from("offices").update({ draft_layout: {} }).eq("id", office.id)
+    const { error } = await admin.from("offices").update({ draft_layout: {} }).eq("id", office.id)
     expect(error?.message ?? "").toMatch(/violates check constraint/)
   })
 
@@ -232,7 +246,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
     // A Zone rect means nothing without the Floor it is measured against, so the Floor
     // every client of this Office shares and the document they read it from are not
     // allowed to disagree.
-    const { error } = await owner.from("offices").insert({
+    const { error } = await admin.from("offices").insert({
       owner_id: ownerId,
       slug: uniqueSlug("mismatched"),
       name: "Mismatched",
@@ -249,13 +263,13 @@ describe.skipIf(!configured)("offices row-level security", () => {
     // published: the columns describe the published Floor, so a draft is free to propose
     // another one without the save being refused.
     const office = await anOffice()
-    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+    await publishDraft(asServer(), office.id, EXAMPLE_LAYOUT)
 
     const wider: Layout = {
       ...EXAMPLE_LAYOUT,
       floor: { width: EXAMPLE_LAYOUT.floor.width + 400, height: EXAMPLE_LAYOUT.floor.height },
     }
-    await saveDraft(supabaseOfficeRows(owner), office.id, wider)
+    await saveDraft(asServer(), office.id, wider)
 
     const stored = await readOwnOffice(owner, office.slug)
     expect(stored?.draft_layout.floor).toEqual(wider.floor)
@@ -263,7 +277,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
     expect(stored?.published_layout?.floor).toEqual(EXAMPLE_LAYOUT.floor)
 
     // And publishing it is what makes that Floor the Office's, columns and all.
-    await publishDraft(supabaseOfficeRows(owner), office.id, wider)
+    await publishDraft(asServer(), office.id, wider)
     expect((await readPublishedOffice(visitor, office.slug))?.floor_width).toBe(wider.floor.width)
   })
 
@@ -271,7 +285,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
     const slug = uniqueSlug("never")
     const broken = { floor: { width: 0, height: 2000 }, zones: [] } as unknown as Layout
     await expect(
-      createOffice(supabaseOfficeRows(owner), { ownerId, slug, name: "Never", layout: broken }),
+      createOffice(asServer(), { ownerId, slug, name: "Never", layout: broken }),
     ).rejects.toThrow("floor.width")
 
     const { data } = await admin.from("offices").select("id").eq("slug", slug)
@@ -279,10 +293,10 @@ describe.skipIf(!configured)("offices row-level security", () => {
   })
   it("stops showing an Office the moment its Owner deletes it", async () => {
     const office = await anOffice("Doomed")
-    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+    await publishDraft(asServer(), office.id, EXAMPLE_LAYOUT)
     expect(await readPublishedOffice(visitor, office.slug)).not.toBeNull()
 
-    await deleteOffice(supabaseOfficeRows(owner), office.id)
+    await deleteOffice(asServer(), office.id)
 
     expect(await readPublishedOffice(visitor, office.slug)).toBeNull()
   })
@@ -314,7 +328,7 @@ describe.skipIf(!configured)("offices row-level security", () => {
       ],
     }
 
-    await saveDraft(supabaseOfficeRows(owner), office.id, authored)
+    await saveDraft(asServer(), office.id, authored)
 
     // Reopening is a fresh read, the way coming back tomorrow is.
     const reopened = await readOwnOffice(owner, office.slug)
@@ -327,19 +341,19 @@ describe.skipIf(!configured)("offices row-level security", () => {
     const office = await anOffice("Half done", newOfficeLayout())
     const noSpawn: Layout = { floor: newOfficeLayout().floor, zones: [] }
 
-    await saveDraft(supabaseOfficeRows(owner), office.id, noSpawn)
+    await saveDraft(asServer(), office.id, noSpawn)
 
     expect((await readOwnOffice(owner, office.slug))?.draft_layout).toEqual(noSpawn)
-    await expect(publishDraft(supabaseOfficeRows(owner), office.id, noSpawn)).rejects.toThrow(
+    await expect(publishDraft(asServer(), office.id, noSpawn)).rejects.toThrow(
       /spawn/,
     )
   })
 
   it("leaves what Visitors see alone while a draft is being authored", async () => {
     const office = await anOffice("Two layouts", EXAMPLE_LAYOUT)
-    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+    await publishDraft(asServer(), office.id, EXAMPLE_LAYOUT)
 
-    await saveDraft(supabaseOfficeRows(owner), office.id, {
+    await saveDraft(asServer(), office.id, {
       floor: EXAMPLE_LAYOUT.floor,
       zones: [{ id: "spawn", kind: "spawn", rect: { x: 0.3, y: 0.45, w: 0.4, h: 0.1 } }],
     })
@@ -350,17 +364,17 @@ describe.skipIf(!configured)("offices row-level security", () => {
 
   it("does not open the editor for an Office its Owner has deleted", async () => {
     const office = await anOffice("Gone")
-    await deleteOffice(supabaseOfficeRows(owner), office.id)
+    await deleteOffice(asServer(), office.id)
 
     expect(await readOwnOffice(owner, office.slug)).toBeNull()
   })
 
   it("keeps a deleted Office's slug spent, so its link never resolves elsewhere", async () => {
     const office = await anOffice("Doomed")
-    await deleteOffice(supabaseOfficeRows(owner), office.id)
+    await deleteOffice(asServer(), office.id)
 
     await expect(
-      createOffice(supabaseOfficeRows(owner), {
+      createOffice(asServer(), {
         ownerId,
         slug: office.slug,
         name: "Squatter",
@@ -398,10 +412,10 @@ describe.skipIf(!configured)("offices row-level security", () => {
   it("keeps a removed-then-recreated slug out of reach even after a hard delete attempt", async () => {
     const office = await anOffice("Doomed")
     await owner.from("offices").delete().eq("id", office.id)
-    await deleteOffice(supabaseOfficeRows(owner), office.id)
+    await deleteOffice(asServer(), office.id)
 
     await expect(
-      createOffice(supabaseOfficeRows(owner), {
+      createOffice(asServer(), {
         ownerId,
         slug: office.slug,
         name: "Squatter",
@@ -414,16 +428,16 @@ describe.skipIf(!configured)("offices row-level security", () => {
     const office = await anOffice("Doomed")
     expect((await listOwnOffices(owner, ownerId)).map((o) => o.id)).toContain(office.id)
 
-    await deleteOffice(supabaseOfficeRows(owner), office.id)
+    await deleteOffice(asServer(), office.id)
 
     expect((await listOwnOffices(owner, ownerId)).map((o) => o.id)).not.toContain(office.id)
   })
 
   it("renames an Office without moving it, so a shared link still opens it", async () => {
     const office = await anOffice("Old name")
-    await publishDraft(supabaseOfficeRows(owner), office.id, EXAMPLE_LAYOUT)
+    await publishDraft(asServer(), office.id, EXAMPLE_LAYOUT)
 
-    const renamed = await renameOffice(supabaseOfficeRows(owner), office.id, "New name")
+    const renamed = await renameOffice(asServer(), office.id, "New name")
     expect(renamed.slug).toBe(office.slug)
 
     const seen = await readPublishedOffice(visitor, office.slug)
@@ -445,22 +459,26 @@ describe.skipIf(!configured)("offices row-level security", () => {
 
 describe.skipIf(!configured)("naming an Office into existence", () => {
   let admin: SupabaseClient
-  let owner: SupabaseClient
   let visitor: SupabaseClient
+  let visitorId: string
   let ownerId: string
   const createdUsers: string[] = []
 
   /** A name no other run has used, so the bare slug is genuinely free the first time. */
   const uniqueName = () => `Acme ${crypto.randomUUID().slice(0, 8)}`
 
+  /** The row store the token server holds — the only one with anything left to write with. */
+  const asServer = () => supabaseOfficeRows(admin)
+
   beforeAll(async () => {
     admin = asAdmin()
     const created = await account(admin)
-    owner = created.client
     ownerId = created.id
     createdUsers.push(created.id)
 
-    visitor = await anonymousVisitor()
+    const walkedIn = await anonymousVisitor()
+    visitor = walkedIn.client
+    visitorId = walkedIn.id
   }, 30_000)
 
   afterAll(async () => {
@@ -469,7 +487,7 @@ describe.skipIf(!configured)("naming an Office into existence", () => {
 
   it("gives the creator an Office reachable at the slug its name asked for", async () => {
     const name = uniqueName()
-    const office = await createOfficeFromName(supabaseOfficeRows(owner), { ownerId, name })
+    const office = await createOfficeFromName(asServer(), { ownerId, name })
 
     expect(office.slug).toBe(slugFrom(name))
     expect(office.layout_version).toBe(1)
@@ -481,7 +499,7 @@ describe.skipIf(!configured)("naming an Office into existence", () => {
   })
 
   it("starts it as an empty Floor with one Spawn Zone", async () => {
-    const office = await createOfficeFromName(supabaseOfficeRows(owner), {
+    const office = await createOfficeFromName(asServer(), {
       ownerId,
       name: uniqueName(),
     })
@@ -493,8 +511,8 @@ describe.skipIf(!configured)("naming an Office into existence", () => {
 
   it("finds a second address when the name is already taken", async () => {
     const name = uniqueName()
-    const first = await createOfficeFromName(supabaseOfficeRows(owner), { ownerId, name })
-    const second = await createOfficeFromName(supabaseOfficeRows(owner), { ownerId, name })
+    const first = await createOfficeFromName(asServer(), { ownerId, name })
+    const second = await createOfficeFromName(asServer(), { ownerId, name })
 
     expect(first.slug).toBe(slugFrom(name))
     expect(second.slug).not.toBe(first.slug)
@@ -503,12 +521,12 @@ describe.skipIf(!configured)("naming an Office into existence", () => {
   })
 
   it("never gives an Office an address the server owns, and the database agrees", async () => {
-    const office = await createOfficeFromName(supabaseOfficeRows(owner), { ownerId, name: "API" })
+    const office = await createOfficeFromName(asServer(), { ownerId, name: "API" })
     expect(office.slug).not.toBe("api")
     expect(office.slug.startsWith("api-")).toBe(true)
 
     // The client picks another address; this is the copy that cannot be bypassed.
-    const { error } = await owner.from("offices").insert({
+    const { error } = await admin.from("offices").insert({
       owner_id: ownerId,
       slug: "api",
       name: "API",
@@ -520,10 +538,14 @@ describe.skipIf(!configured)("naming an Office into existence", () => {
     expect(error?.message ?? "").toContain("offices_slug_not_reserved")
   })
 
-  it("refuses an anonymous Visitor outright, rather than trying another slug", async () => {
-    const visitorId = (await visitor.auth.getUser()).data.user!.id
+  it("refuses a browser outright, rather than trying another slug", async () => {
+    // A refusal that is not a taken slug ends the search rather than restarting it — and
+    // "you may not write here at all" is now the refusal every browser gets, whoever is
+    // holding it. That an anonymous Visitor may not own an Office is still true and still
+    // enforced; it moved to `server/officeWrites.database.test.mjs`, where the account
+    // making the request is known (ADR-0003, ADR-0011).
     await expect(
       createOfficeFromName(supabaseOfficeRows(visitor), { ownerId: visitorId, name: uniqueName() }),
-    ).rejects.toThrow(/row-level security/)
+    ).rejects.toThrow(/permission denied/)
   })
 })

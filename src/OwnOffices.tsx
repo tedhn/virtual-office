@@ -3,12 +3,12 @@ import { Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { deleteOffice, renameOffice, type OfficeSummary } from "@/lib/offices"
-import { listOwnOffices, supabaseOfficeRows } from "@/lib/officeRows"
+import { deleteOffice, renameOffice } from "@/lib/officeApi"
+import type { OfficeSummary } from "@/lib/offices"
+import { listOwnOffices } from "@/lib/officeRows"
 import { people } from "@/lib/people"
 import { announceDeleted, visitorsInside } from "@/lib/publishing"
 import { officePath } from "@/lib/routes"
-import { supabase } from "@/lib/supabase"
 import { useSupabaseLookup } from "@/lib/useSupabaseLookup"
 import { navigate } from "@/lib/useRoute"
 
@@ -130,7 +130,7 @@ function OfficeRow({
     onError(null)
     onNotice(null)
     try {
-      const stored = await renameOffice(supabaseOfficeRows(supabase()), office.id, wanted)
+      const stored = await renameOffice(office.slug, wanted)
       onRenamed(stored.name)
       setRenaming(false)
     } catch (err) {
@@ -158,7 +158,7 @@ function OfficeRow({
     setBusy(true)
     try {
       if (!window.confirm(await deleteQuestion(office))) return
-      await deleteOffice(supabaseOfficeRows(supabase()), office.id)
+      await deleteOffice(office.slug)
       try {
         const turnedOut = await announceDeleted(office.slug)
         onNotice(

@@ -5,12 +5,11 @@ import type { AuthGateway } from "@/auth/useAuthSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { publishDraft, saveDraft, type Office } from "@/lib/offices"
+import { publishDraft, saveDraft } from "@/lib/officeApi"
+import type { Office } from "@/lib/offices"
 import { people } from "@/lib/people"
-import { supabaseOfficeRows } from "@/lib/officeRows"
 import { announcePublished, visitorsInside } from "@/lib/publishing"
 import { officePath } from "@/lib/routes"
-import { supabase } from "@/lib/supabase"
 import { navigate } from "@/lib/useRoute"
 import { DEFAULT_SEATS, type Layout, type Zone, type ZoneKind } from "../layout"
 import { validatePublishableLayout } from "../layoutSchema"
@@ -163,7 +162,7 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
     setError(null)
     const attempt = layout
     try {
-      await saveDraft(supabaseOfficeRows(supabase()), office.id, attempt)
+      await saveDraft(office.slug, attempt)
       setSaved(attempt)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save the draft")
@@ -195,7 +194,7 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
       const question = await disruptionQuestion(office.slug)
       if (question && !window.confirm(question)) return
 
-      await publishDraft(supabaseOfficeRows(supabase()), office.id, attempt)
+      await publishDraft(office.slug, attempt)
       setSaved(attempt)
 
       try {

@@ -1,9 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { sendMagicLink } from "@/auth/session"
-import { createOffice } from "@/lib/offices"
-import { supabaseOfficeRows } from "@/lib/officeRows"
-import { EXAMPLE_LAYOUT } from "@/office/exampleLayout"
 import { configured, missingConfigWarning, publishableKey, secretKey, supabaseUrl } from "./testEnv"
 
 /**
@@ -110,13 +107,19 @@ describe.skipIf(!configured)("magic-link sign-in", () => {
     userId = data.user!.id
   }, 30_000)
 
-  it("gives them an account that may own an Office", async () => {
-    const office = await createOffice(supabaseOfficeRows(signingIn), {
-      ownerId: userId!,
-      slug: `magic-${crypto.randomUUID().slice(0, 8)}`,
-      name: "Magic HQ",
-      layout: EXAMPLE_LAYOUT,
-    })
-    expect(office.owner_id).toBe(userId)
+  it("gives them a session the office server accepts as an Owner's", async () => {
+    // Owning an Office is no longer something this client does for itself: `insert` on
+    // `offices` is revoked from the key it holds, and the write is the token server's
+    // (ADR-0011). What this path has to produce is the credential that server accepts — a
+    // session whose access token Supabase verifies as a real, non-anonymous account
+    // (ADR-0003). The write it then performs is proven in
+    // `server/officeWrites.database.test.mjs`.
+    const { data } = await signingIn.auth.getSession()
+    expect(data.session).not.toBeNull()
+
+    const verified = await admin.auth.getUser(data.session!.access_token)
+    expect(verified.error).toBeNull()
+    expect(verified.data.user?.id).toBe(userId)
+    expect(verified.data.user?.is_anonymous ?? false).toBe(false)
   })
 })

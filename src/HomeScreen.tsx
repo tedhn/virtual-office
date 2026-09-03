@@ -13,11 +13,9 @@ import { Label } from "@/components/ui/label"
 import { AccountSignIn } from "@/auth/AccountSignIn"
 import { isAnonymous } from "@/auth/session"
 import type { AuthGateway } from "@/auth/useAuthSession"
-import { createOfficeFromName } from "@/lib/offices"
-import { supabaseOfficeRows } from "@/lib/officeRows"
+import { createOffice } from "@/lib/officeApi"
 import { officePath } from "@/lib/routes"
 import { isSlug, slugFrom } from "@/lib/slug"
-import { supabase } from "@/lib/supabase"
 import { navigate } from "@/lib/useRoute"
 import { OwnOffices } from "@/OwnOffices"
 
@@ -48,7 +46,7 @@ export function HomeScreen({ auth }: HomeScreenProps) {
 
       {owner && <OwnOffices ownerId={owner} />}
 
-      {owner && <CreateOfficeForm ownerId={owner} />}
+      {owner && <CreateOfficeForm />}
 
       <AccountSignIn auth={auth} />
 
@@ -77,7 +75,7 @@ function addressFor(name: string): string {
  * Name an Office, get an Office. The name is the only thing asked for: the address comes
  * from it, and the Floor it starts with is empty but for the Spawn Zone people arrive in.
  */
-function CreateOfficeForm({ ownerId }: { ownerId: string }) {
+function CreateOfficeForm() {
   const [name, setName] = useState("")
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -90,10 +88,7 @@ function CreateOfficeForm({ ownerId }: { ownerId: string }) {
     setCreating(true)
     setError(null)
     try {
-      const office = await createOfficeFromName(supabaseOfficeRows(supabase()), {
-        ownerId,
-        name: wanted,
-      })
+      const office = await createOffice(wanted)
       navigate(officePath(office.slug))
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the office")

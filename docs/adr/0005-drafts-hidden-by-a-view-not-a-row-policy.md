@@ -35,3 +35,16 @@ grows a field that is meant to be public.
 The view's `where` clause is now load-bearing security rather than convenience. Widening
 it, or switching it to `security_invoker`, changes who can read what; treat an edit to
 `offices_public` as a change to the privacy model, not a query tweak.
+
+## Amendment: writes left the table, reads did not
+
+"Owner-only for every operation" was true of the table's policies and is no longer true of
+its grants. `insert` and `update` are revoked from `anon` and `authenticated` outright, and
+every write goes through the token server with a key that bypasses row-level security
+(ADR-0011). The owner-only policies for those two operations stay where they are,
+unreachable, so a future grant reopens an owner-only door rather than an open one.
+
+Nothing in the reasoning above changes. A draft is still a column on the same row as the
+published Layout, the read policies still name the Owner, and `offices_public` is still the
+whole boundary between a Visitor and an Owner's unfinished work — which is now the only
+thing on this table row-level security is load-bearing for.

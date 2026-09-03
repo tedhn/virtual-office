@@ -1,17 +1,26 @@
-import type { Layout } from "@/office/layout"
-import { validateLayout, validatePublishableLayout } from "@/office/layoutSchema"
-import { newOfficeLayout } from "@/office/newOfficeLayout"
-import { randomTail } from "./randomTail"
-import { isSlug, slugCandidates, SLUG_MAX_LENGTH, SLUG_MIN_LENGTH } from "./slug"
+import type { Layout } from "../office/layout.ts"
+import { validateLayout, validatePublishableLayout } from "../office/layoutSchema.ts"
+import { newOfficeLayout } from "../office/newOfficeLayout.ts"
+import { randomTail } from "./randomTail.ts"
+import { isSlug, slugCandidates, SLUG_MAX_LENGTH, SLUG_MIN_LENGTH } from "./slug.ts"
 
 /**
- * Writing and reading Offices.
+ * Writing Offices: everything a write has to be right about, in one place above the row.
  *
- * Everything a Layout write has to be right about happens here, above the database: a
- * malformed Layout is refused before a request is issued (ADR-0001), and a draft is only
+ * A malformed Layout is refused before a request is issued (ADR-0001), and a draft is only
  * held to being well-formed while publishing is held to describing an Office that works.
- * The database is left to enforce what only it can — ownership, slug permanence, and the
- * published-Layout version counter.
+ * The database is left to enforce what only it can — slug permanence, the shape of the
+ * stored document, and the published-Layout version counter.
+ *
+ * This module runs on the **server**, not in the browser: `server/officeWrites.mjs` loads
+ * it from source (ADR-0004) and it is the only thing holding a key that may write, because
+ * the browser's key is public and a rule it enforces on itself is a rule anyone may decline
+ * to follow (ADR-0011). The browser asks for these operations over HTTP instead — see
+ * `lib/officeApi.ts` — and the errors thrown here are the messages it puts on screen.
+ *
+ * Ownership is deliberately not checked here. The caller supplies an `ownerId` it has
+ * already established, and this module has no way to establish one: the route above it
+ * verifies the JWT and refuses a write to an Office the caller does not own.
  */
 
 /** The offices columns a client writes. Named as the columns are, so the adapter stays dumb. */
@@ -89,6 +98,22 @@ export class OfficeWriteError extends Error {
   }
 }
 
+/**
+ * A write refused before it was issued, because what was handed over is not a Layout, or
+ * not a name.
+ *
+ * Its own type so a caller can tell it from `OfficeWriteError` above without reading the
+ * message: this one is the caller's to fix and its message is written to be shown to them,
+ * while a database refusal and a bug in this process are neither. `server/officeWrites.mjs`
+ * turns that difference into 400 against 500.
+ */
+export class OfficeInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "OfficeInputError"
+  }
+}
+
 /** The unique violation. `slug` is the only unique column an insert can trip over. */
 const UNIQUE_VIOLATION = "23505"
 
@@ -100,7 +125,7 @@ export function isSlugTaken(error: unknown): boolean {
 /** Slugs are permanent and shared in links, so they are held to a shape the database also checks. */
 function checkSlug(slug: string): void {
   if (!isSlug(slug)) {
-    throw new Error(
+    throw new OfficeInputError(
       `slug: expected ${SLUG_MIN_LENGTH}-${SLUG_MAX_LENGTH} characters of lowercase letters, digits and single hyphens (got "${slug}")`,
     )
   }
@@ -113,7 +138,7 @@ function checkSlug(slug: string): void {
  */
 function checkName(name: string): string {
   const trimmed = name.trim()
-  if (!trimmed) throw new Error("name: an Office needs a name")
+  if (!trimmed) throw new OfficeInputError("name: an Office needs a name")
   return trimmed
 }
 
@@ -129,13 +154,13 @@ function floorOf(layout: Layout) {
 
 function wellFormed(layout: Layout): Layout {
   const result = validateLayout(layout)
-  if (!result.ok) throw new Error(result.errors.join("; "))
+  if (!result.ok) throw new OfficeInputError(result.errors.join("; "))
   return result.layout
 }
 
 function publishable(layout: Layout): Layout {
   const result = validatePublishableLayout(layout)
-  if (!result.ok) throw new Error(result.errors.join("; "))
+  if (!result.ok) throw new OfficeInputError(result.errors.join("; "))
   return result.layout
 }
 
@@ -202,7 +227,7 @@ export async function createOfficeFromName(
       refusal = error
     }
   }
-  throw refusal ?? new Error(`slug: found no free address for "${name}"`)
+  throw refusal ?? new OfficeInputError(`slug: found no free address for "${name}"`)
 }
 
 /**

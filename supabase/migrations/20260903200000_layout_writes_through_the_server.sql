@@ -1,0 +1,35 @@
+-- Writing an Office is the server's job now, not the browser's.
+--
+-- The anon key is public by design, so everything the browser could write straight to
+-- PostgREST, anyone holding that key could write. What stood between them and nonsense was
+-- `src/lib/offices.ts` validating the document before issuing the request — which is a good
+-- error message, not a boundary. The database's own checks stop deliberately short of the
+-- Zones (see the comment at the top of 20260902000000_offices.sql): a second implementation
+-- of the Layout schema, in SQL, where the client cannot share it, is exactly the duplication
+-- ADR-0004 exists to prevent. So a caller with the anon key could store a well-shaped Layout
+-- describing nothing at all, and the relay would refuse to enforce privacy against it.
+--
+-- The way out is not to teach SQL what a Zone is. It is to put the writes where the shared
+-- schema already runs: the token server, which loads `src/office/layoutSchema.ts` from
+-- source (ADR-0004) and now loads the write rules with it. It verifies the caller's JWT,
+-- refuses a write to an Office they do not own, validates, and writes with the secret key.
+-- See ADR-0011 and `server/officeWrites.mjs`.
+--
+-- Reads are untouched, and that is deliberate: row-level security still decides which rows
+-- an Owner sees, and `offices_public` is still the one door onto a published Layout
+-- (ADR-0005). This changes who may write, and nothing about who may read.
+
+revoke insert, update on public.offices from anon, authenticated;
+
+-- The owner-only policies for insert and update stay where they are, unreachable but not
+-- wrong. Postgres needs BOTH a privilege and a passing policy, so they are the second half
+-- of a pair: a future migration that grants writes back — deliberately or by running
+-- `grant all on public.offices to authenticated` out of habit — reopens a door that is
+-- still owner-only, rather than one that is wide open. Dropping them would make that
+-- mistake silent, which is the opposite of what they are for.
+--
+-- Their contents are now also said in JavaScript, in `server/officeWrites.mjs`: the caller
+-- owns the Office they are writing to, and creating one takes a non-anonymous account
+-- (ADR-0003). That is a duplication, and an accepted one — the server writes with a key
+-- that bypasses row-level security, so the rules have to exist somewhere it cannot bypass
+-- them, and "somewhere" is the only place left.

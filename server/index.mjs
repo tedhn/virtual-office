@@ -10,6 +10,12 @@ import { StreamClient } from "@stream-io/node-sdk"
 import { attachRelay } from "./relay.mjs"
 import { officeDirectory, supabaseConfig } from "./offices.mjs"
 import { officeLayouts } from "./officeLayouts.mjs"
+import {
+  officeStore,
+  officeWriteRoutes,
+  supabaseCallers,
+  supabaseSecret,
+} from "./officeWrites.mjs"
 import { deletedRoute, republishedRoute, visitorCountRoute } from "./publishing.mjs"
 import { tokenRoute } from "./token.mjs"
 
@@ -55,13 +61,39 @@ if (!supabase) {
   process.exit(1)
 }
 
+// Writing an Office is this server's job as of ADR-0011, and writing is what the secret key
+// is for: the browser has no insert or update grant left. Without it an Owner can still walk
+// into an Office and talk in it, but cannot create one, save a draft, publish, rename or
+// delete — so this is fatal at boot rather than a surprise at the first save.
+const secretKey = supabaseSecret(process.env)
+if (!secretKey) {
+  console.error(
+    "Missing SUPABASE_SECRET_KEY (SUPABASE_SERVICE_ROLE_KEY is read too). Every write to an " +
+      "Office goes through this server now — see ADR-0011 — and it writes with that key. " +
+      "Never expose it to the browser; see .env.example.",
+  )
+  process.exit(1)
+}
+
 const directory = officeDirectory(supabase)
+const store = officeStore({ url: supabase.url, secretKey })
+const writes = officeWriteRoutes({
+  callerOf: supabaseCallers(supabase),
+  officeAt: store.officeAt,
+  rows: store.rows,
+})
 
 const client = new StreamClient(STREAM_API_KEY, STREAM_API_SECRET)
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+
+// Bodies are parsed per route rather than for the whole app, because they are not the same
+// size. A Layout document can outgrow the 100kb Express assumes — a Floor may hold a lot of
+// Zones — and nothing else posted here carries more than a couple of fields, which is not a
+// cap worth raising for every endpoint at once.
+const smallBody = express.json()
+const layoutBody = express.json({ limit: "1mb" })
 
 // ---------------------------------------------------------------------------
 // Real-time position + chat relay (WebSocket).
@@ -80,6 +112,7 @@ const relay = attachRelay(wss, { layoutFor: layouts.layoutFor })
 // server; the browser only ever sees the JWT. The gate itself lives in ./token.mjs.
 app.post(
   "/api/token",
+  smallBody,
   tokenRoute({
     apiKey: STREAM_API_KEY,
     mintToken: (userId) =>
@@ -115,6 +148,17 @@ app.post(
     closeOffice: relay.closeOffice,
   }),
 )
+
+// Every write to an Office. The browser has no grant to write one itself: the anon key is
+// public, so a Layout checked only in the browser is a convention rather than a rule, and
+// these routes are where the shared schema actually runs. Each one verifies the caller's
+// JWT and refuses a write to an Office they do not own — see ./officeWrites.mjs and
+// ADR-0011.
+app.post("/api/offices", smallBody, writes.create)
+app.put("/api/offices/:slug/draft-layout", layoutBody, writes.saveDraft)
+app.put("/api/offices/:slug/published-layout", layoutBody, writes.publish)
+app.patch("/api/offices/:slug", smallBody, writes.rename)
+app.delete("/api/offices/:slug", writes.remove)
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }))
 

@@ -525,8 +525,15 @@ describe("Shared modules loaded from source", () => {
 
   // Every server module that imports TypeScript from `src/`: the relay for the geometry
   // and the close codes, the Layout cache for the schema, the token and publishing routes
-  // for the slug shape. Add to this list whenever another server module starts doing the same.
-  for (const module of ["./relay.mjs", "./officeLayouts.mjs", "./token.mjs", "./publishing.mjs"]) {
+  // for the slug shape, and the write routes for the whole of `lib/offices.ts` and the row
+  // adapter under it. Add to this list whenever another server module starts doing the same.
+  for (const module of [
+    "./relay.mjs",
+    "./officeLayouts.mjs",
+    "./token.mjs",
+    "./publishing.mjs",
+    "./officeWrites.mjs",
+  ]) {
     it(`loads ${module} in plain Node, the way the server actually starts`, async () => {
       // Vitest resolves extensionless imports through Vite; plain Node does not. A runtime
       // import inside the shared graph that loses its `.ts` passes every test above and

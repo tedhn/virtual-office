@@ -51,3 +51,25 @@ nothing. The guard that does work is the test in `server/relay.test.mjs` that sp
 real `node` process and imports each server module through it. Keep it, and add a module
 to its list whenever another one starts loading TypeScript from source: it is the only
 thing between a missing extension and a boot failure in production.
+
+## Amendment: the write rules joined the graph, and brought one DOM type with them
+
+`server/officeWrites.mjs` loads `src/lib/offices.ts` from source, so the graph now reaches
+`src/lib/officeRows.ts`, `src/lib/randomTail.ts` and `src/office/newOfficeLayout.ts` as well
+(ADR-0011). Two of the constraints above needed thinking about again, and one of them bends.
+
+The extension rule holds unchanged, and the guard in `server/relay.test.mjs` has
+`./officeWrites.mjs` in its list.
+
+"Free of third-party imports" holds in the sense that matters: `officeRows.ts` imports
+`@supabase/supabase-js` for types only, `verbatimModuleSyntax` erases the statement, and
+nothing is resolved at load.
+
+"Free of DOM types" does not hold any more. `randomTail.ts` calls `crypto.getRandomValues`,
+which type-checks only through the DOM lib, and it is in the graph because inventing a slug
+is part of creating an Office. It runs on the server because Node has had the same Web
+Crypto global since 19, and it type-checks because the only project that compiles it is
+`tsconfig.app.json`, which has the DOM lib. So the rule is narrower than it was written: the
+graph must stay free of DOM *APIs the server does not have*, which is most of them and is
+the thing the rule was protecting against. `slug.ts` is still kept clear of even that, so
+the routes that only need to recognise a slug do not drag a random generator along.

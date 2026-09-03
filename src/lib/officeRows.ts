@@ -1,5 +1,5 @@
 import type { PostgrestSingleResponse, SupabaseClient } from "@supabase/supabase-js"
-import { OfficeWriteError } from "./offices"
+import { OfficeWriteError } from "./offices.ts"
 import type {
   Office,
   OfficeFields,
@@ -7,13 +7,19 @@ import type {
   OfficeRows,
   OfficeSummary,
   PublishedOffice,
-} from "./offices"
+} from "./offices.ts"
 
 /**
  * The Supabase side of the office store: the thinnest possible translation of the row
  * operations in `offices.ts` into PostgREST calls. Nothing decides anything here — the
- * rules live above (validation, in `offices.ts`) and below (ownership and versioning, in
- * the database), so this layer stays a place where nothing can go subtly wrong.
+ * rules live above it (validation in `offices.ts`, identity and ownership in
+ * `server/officeWrites.mjs`) and below it (slug permanence and versioning in the database),
+ * so this layer stays a place where nothing can go subtly wrong.
+ *
+ * The two halves of this file are reached with different keys and from different places.
+ * `supabaseOfficeRows` writes, and only the server calls it, holding the secret key: the
+ * browser's key has no insert or update grant left (ADR-0011). The reads below it are the
+ * browser's, and are governed by row-level security exactly as they were.
  */
 
 /**
