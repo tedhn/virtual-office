@@ -20,7 +20,7 @@ what reaches the browser — a `NEXT_PUBLIC_…` key pasted from the dashboard d
 pair, and refuses to start without it: it has to be able to tell a real office from an
 invented one before it mints anything (ADR-0006).
 
-Sign in with an email link, name an office, and you land on it at its own URL — an empty
+Sign in with an email and password, name an office, and you land on it at its own URL — an empty
 floor with a single spawn zone, and a link you can share. Author it at `/<slug>/edit`, and
 publish when it holds together: publishing is what visitors walk into, and what the server
 enforces privacy against.
@@ -106,9 +106,15 @@ enforces privacy against.
 
 - **Visiting takes no account.** `src/auth/session.ts` signs a Visitor in anonymously as
   the page loads, and the Supabase client persists that session — so a refresh brings
-  back the same person, not a stranger. **Creating** an Office needs a magic-link
-  account, because an Office outlives the browser storage an anonymous identity lives in
+  back the same person, not a stranger. **Creating** an Office needs a real account,
+  because an Office outlives the browser storage an anonymous identity lives in
   (ADR-0003). `AccountSignIn` is that second door, and the create form appears behind it.
+- **An account is reached with a password, or with a link.** Both credentials reach the
+  same Supabase account for the same address, so signing up one way and coming back the
+  other works (ADR-0008). The password is the default because it needs no email round
+  trip — a hosted project's built-in mailer allows a couple of messages an hour, which is
+  not enough to sign in with twice. Forgetting it emails a reset link, and the session
+  that link produces shows a field to choose a new password instead of the sign-in form.
 - `supabase/migrations/` — the `offices` table: owner, permanent slug, name, the published
   floor's dimensions, the published and draft Layouts, and a layout version the database
   bumps itself on every publish. The floor columns describe the floor every client of that

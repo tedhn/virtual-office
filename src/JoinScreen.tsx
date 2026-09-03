@@ -96,7 +96,7 @@ export function JoinScreen({
         </form>
       </Card>
 
-      <AccountSignIn session={auth.session} onRequestLink={auth.requestMagicLink} />
+      <AccountSignIn auth={auth} />
 
       {/* The Owner's door, alongside the sign-in state rather than instead of it.
           Authoring is somewhere else entirely — not a mode you switch on while standing in

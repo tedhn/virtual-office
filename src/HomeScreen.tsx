@@ -50,7 +50,7 @@ export function HomeScreen({ auth }: HomeScreenProps) {
 
       {owner && <CreateOfficeForm ownerId={owner} />}
 
-      <AccountSignIn session={session} onRequestLink={auth.requestMagicLink} />
+      <AccountSignIn auth={auth} />
 
       {error && <p className="text-destructive max-w-sm text-center text-sm">{error}</p>}
     </div>
