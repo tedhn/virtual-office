@@ -42,7 +42,7 @@ scrims, status badges, chat names and the editor's selection marks are all in it
 
 The Floor sits on the chrome as a dark rectangle in the light theme — on the join screen's
 preview, in the editor's canvas. That is intended, and is the strongest visual statement
-the product makes: light paper around a dark room.
+the product makes: bright white around a dark room.
 
 Two colour sets means one more question when adding a colour: is this thing chrome, or is
 it on the Floor? The naming answers it, and the test enforces the answer.

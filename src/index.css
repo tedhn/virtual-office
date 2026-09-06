@@ -109,8 +109,8 @@
 
     /* A Floor is a room seen from above, so the things standing on it cast something.
        Two depths only: furniture sits on the Floor, a Wall rises off it. */
-    --shadow-zone: 0 1px 3px oklch(0.12 0.012 58 / 45%);
-    --shadow-wall: 0 3px 8px oklch(0.12 0.012 58 / 55%);
+    --shadow-zone: 0 1px 3px oklch(0.12 0.008 262 / 50%);
+    --shadow-wall: 0 3px 8px oklch(0.12 0.008 262 / 60%);
 
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
@@ -128,7 +128,7 @@
  * The palette.
  *
  * Two surfaces, not two themes. The chrome — the front door, the join screen, the
- * editor's inspector, the dialogs — is paper: warm, light by default, dark when the
+ * editor's inspector, the dialogs — is white and bright by default, and dark when the
  * reader's system asks for it. The Floor is the other surface, and it is dark in either
  * theme, because it is the thing being looked at rather than the thing around it: Avatars,
  * live camera circles and Zone tints all read against dark, and a Floor that inverted with
@@ -142,45 +142,50 @@
  * declared once, here, and `palette.test.ts` holds both halves of that rule: the chrome
  * tokens have to exist in both blocks, and the Floor tokens in neither but this one.
  *
- * Every colour is a colour. Nothing here is `oklch(L 0 0)` — the ink is a warm brown-grey
- * rather than black, the ground is paper rather than white, and the greys have a hue in
- * them. That is also a test rather than a habit.
+ * The chrome's ground is white and stays white: `--background`, `--card` and `--popover`
+ * are true neutrals on purpose, and the three of them are the only tokens in the palette
+ * allowed to be. Everything else was picked — the ink is a cool near-black rather than a
+ * flat one, the greys lean the same way, and the accents carry real chroma.
+ * `palette.test.ts` holds that line, with those three named in it as the exception.
+ *
+ * The Floor's ground follows the chrome's: a neutral dark, not a brown one. What stays
+ * warm on it is the furniture, because a Table reading as wood is the point of it.
  */
 :root {
-    --background: oklch(0.973 0.006 84);
-    --foreground: oklch(0.285 0.024 55);
-    --card: oklch(0.995 0.003 84);
-    --card-foreground: oklch(0.285 0.024 55);
-    --popover: oklch(0.995 0.003 84);
-    --popover-foreground: oklch(0.285 0.024 55);
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.25 0.01 262);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.25 0.01 262);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.25 0.01 262);
     /* One saturated action colour, and only one. A teal deep enough to carry white. */
-    --primary: oklch(0.5 0.098 210);
-    --primary-foreground: oklch(0.985 0.008 200);
-    --secondary: oklch(0.925 0.014 78);
-    --secondary-foreground: oklch(0.32 0.024 58);
-    --muted: oklch(0.945 0.01 80);
-    --muted-foreground: oklch(0.5 0.02 62);
-    --accent: oklch(0.915 0.03 205);
-    --accent-foreground: oklch(0.33 0.07 210);
-    --destructive: oklch(0.505 0.19 27);
-    --border: oklch(0.885 0.01 78);
-    --input: oklch(0.635 0.016 76);
-    --ring: oklch(0.5 0.098 210);
+    --primary: oklch(0.53 0.1 210);
+    --primary-foreground: oklch(0.99 0.006 200);
+    --secondary: oklch(0.965 0.003 262);
+    --secondary-foreground: oklch(0.3 0.01 262);
+    --muted: oklch(0.972 0.003 262);
+    --muted-foreground: oklch(0.53 0.012 262);
+    --accent: oklch(0.945 0.028 205);
+    --accent-foreground: oklch(0.35 0.075 210);
+    --destructive: oklch(0.55 0.19 27);
+    --border: oklch(0.915 0.004 262);
+    --input: oklch(0.655 0.008 262);
+    --ring: oklch(0.53 0.1 210);
     --radius: 0.625rem;
 
     /* The Floor: one dark surface, in either theme. */
-    --floor-surface: oklch(0.245 0.014 58);
-    --floor-edge: oklch(0.42 0.022 60);
-    --floor-grid: oklch(0.98 0.01 84 / 8%);
-    --floor-label: oklch(0.82 0.014 78);
-    --floor-panel: oklch(0.2 0.012 58 / 82%);
-    --floor-panel-foreground: oklch(0.955 0.008 84);
-    --floor-prompt: oklch(0.95 0.01 84);
-    --floor-prompt-foreground: oklch(0.26 0.022 58);
+    --floor-surface: oklch(0.245 0.01 262);
+    --floor-edge: oklch(0.42 0.012 262);
+    --floor-grid: oklch(0.98 0.004 262 / 9%);
+    --floor-label: oklch(0.82 0.008 262);
+    --floor-panel: oklch(0.2 0.008 262 / 82%);
+    --floor-panel-foreground: oklch(0.965 0.003 262);
+    --floor-prompt: oklch(0.985 0.002 262);
+    --floor-prompt-foreground: oklch(0.25 0.01 262);
     /* How far a voice carries, drawn around the local Avatar: the near ring is where it is
        still at full volume, the far one where it has faded to nothing. */
-    --floor-reach: oklch(0.98 0.01 84 / 14%);
-    --floor-reach-near: oklch(0.98 0.01 84 / 22%);
+    --floor-reach: oklch(0.98 0.004 262 / 14%);
+    --floor-reach-near: oklch(0.98 0.004 262 / 22%);
     /* The Owner's marks on the Floor: the outline round the selected Zone and the grips on
        it. A blue nothing else on the Floor uses, so "selected" is never mistaken for a
        Zone's own tint. Not `--primary`, which follows the reader's theme — the Floor does
@@ -191,59 +196,59 @@
     /* Everything else the Floor carries. Avatars, their badges, the chat log and the
        joystick are drawn on the Floor rather than in the chrome, so their colours belong
        to the Floor's set and stay put when the reader's theme changes. */
-    --floor-scrim: oklch(0.14 0.012 58 / 72%);
-    --floor-you: oklch(0.99 0.004 84);
+    --floor-scrim: oklch(0.14 0.008 262 / 72%);
+    --floor-you: oklch(0.99 0.002 262);
     --floor-speaking: oklch(0.8 0.17 150);
     --floor-speaking-label: oklch(0.47 0.12 152 / 90%);
     --floor-alert: oklch(0.55 0.19 27);
     --floor-share: oklch(0.52 0.17 255);
-    --floor-control: oklch(0.2 0.012 58 / 35%);
-    --floor-control-knob: oklch(0.95 0.008 84 / 88%);
+    --floor-control: oklch(0.2 0.008 262 / 35%);
+    --floor-control-knob: oklch(0.97 0.003 262 / 90%);
     --floor-chat-you: oklch(0.84 0.09 235);
     --floor-chat-peer: oklch(0.86 0.09 158);
-    --floor-video-ground: oklch(0.12 0.008 58);
+    --floor-video-ground: oklch(0.12 0.006 262);
 
     /* Zones, as tints on that surface. A Zone's colour is one of the channels telling it
        from its neighbours; `zoneAppearance.ts` carries the others, because hue alone is a
        signal some readers do not receive. */
-    --zone-wall: oklch(0.47 0.02 60);
-    --zone-exterior: oklch(0.165 0.01 55);
+    --zone-wall: oklch(0.47 0.012 262);
+    --zone-exterior: oklch(0.165 0.008 262);
     --zone-room-private: oklch(0.62 0.085 205 / 21%);
     --zone-room-private-hover: oklch(0.62 0.085 205 / 31%);
     --zone-room-private-border: oklch(0.74 0.09 205 / 75%);
-    --zone-room-nonprivate: oklch(0.8 0.02 80 / 9%);
-    --zone-room-nonprivate-hover: oklch(0.8 0.02 80 / 16%);
-    --zone-room-nonprivate-border: oklch(0.82 0.02 80 / 55%);
+    --zone-room-nonprivate: oklch(0.86 0.008 262 / 10%);
+    --zone-room-nonprivate-hover: oklch(0.86 0.008 262 / 18%);
+    --zone-room-nonprivate-border: oklch(0.87 0.008 262 / 55%);
     --zone-table: oklch(0.68 0.05 70 / 34%);
     --zone-table-border: oklch(0.74 0.05 70 / 60%);
     --zone-dining: oklch(0.66 0.1 62 / 28%);
     --zone-dining-border: oklch(0.78 0.12 62 / 55%);
-    --zone-seat: oklch(0.86 0.015 80 / 78%);
-    --zone-seat-hover: oklch(0.86 0.015 80 / 20%);
-    --zone-seat-taken: oklch(0.8 0.02 78 / 85%);
+    --zone-seat: oklch(0.88 0.006 262 / 78%);
+    --zone-seat-hover: oklch(0.88 0.006 262 / 20%);
+    --zone-seat-taken: oklch(0.83 0.008 262 / 85%);
     --zone-spawn: oklch(0.7 0.1 160 / 13%);
     --zone-spawn-border: oklch(0.78 0.11 160 / 70%);
     --zone-spawn-label: oklch(0.86 0.1 160);
 }
 
 .dark {
-    --background: oklch(0.205 0.012 62);
-    --foreground: oklch(0.955 0.008 84);
-    --card: oklch(0.253 0.013 62);
-    --card-foreground: oklch(0.955 0.008 84);
-    --popover: oklch(0.253 0.013 62);
-    --popover-foreground: oklch(0.955 0.008 84);
+    --background: oklch(0.205 0.008 262);
+    --foreground: oklch(0.965 0.003 262);
+    --card: oklch(0.255 0.009 262);
+    --card-foreground: oklch(0.965 0.003 262);
+    --popover: oklch(0.255 0.009 262);
+    --popover-foreground: oklch(0.965 0.003 262);
     --primary: oklch(0.78 0.095 200);
     --primary-foreground: oklch(0.215 0.035 210);
-    --secondary: oklch(0.31 0.014 66);
-    --secondary-foreground: oklch(0.945 0.008 84);
-    --muted: oklch(0.305 0.013 64);
-    --muted-foreground: oklch(0.745 0.014 76);
+    --secondary: oklch(0.315 0.01 262);
+    --secondary-foreground: oklch(0.95 0.003 262);
+    --muted: oklch(0.31 0.009 262);
+    --muted-foreground: oklch(0.75 0.01 262);
     --accent: oklch(0.34 0.035 205);
     --accent-foreground: oklch(0.9 0.045 200);
     --destructive: oklch(0.745 0.145 25);
-    --border: oklch(0.98 0.008 84 / 14%);
-    --input: oklch(0.98 0.008 84 / 42%);
+    --border: oklch(0.98 0.004 262 / 14%);
+    --input: oklch(0.98 0.004 262 / 42%);
     --ring: oklch(0.72 0.09 202);
 }
 

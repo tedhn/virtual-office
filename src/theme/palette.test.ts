@@ -24,6 +24,16 @@ const AA_UI = 3
 /** Tokens naming a Floor colour rather than a chrome one — see the Floor block below. */
 const isFloorToken = (name: string) => /^--(floor|zone)-/.test(name)
 
+/**
+ * The three tokens allowed to be a true neutral.
+ *
+ * The rule below exists to catch a colour nobody chose. White is a colour somebody chose:
+ * the chrome's ground is white and bright on purpose, and giving it a token whisper of
+ * chroma to satisfy a test would be the test dictating the design. Every other role has to
+ * have been picked, which is what the rule is for.
+ */
+const NEUTRAL_BY_CHOICE = new Set(["--background", "--card", "--popover"])
+
 /** A token's colour, or a failure naming the token. Never a silent pass on a missing one. */
 function color(tokens: Record<string, string>, name: string): Oklch {
   const raw = tokens[name]
@@ -61,6 +71,7 @@ const THEMES: [string, Record<string, string>][] = [
 describe("The palette is chosen rather than left at its defaults", () => {
   it.each(THEMES)("has no colourless placeholder anywhere in %s", (_theme, tokens) => {
     const colourless = Object.entries(tokens)
+      .filter(([name]) => !NEUTRAL_BY_CHOICE.has(name))
       .filter(([, value]) => value.startsWith("oklch("))
       .filter(([, value]) => parseColor(value)?.c === 0)
       .map(([name]) => name)
@@ -139,7 +150,7 @@ describe("Chrome drawn on the Floor rather than on the page", () => {
    * dark. They wear a `.dark` class for exactly that reason (ADR-0012), so it is the dark
    * palette, not the reader's, that has to hold up against the Floor's surface.
    *
-   * Without this block a reader in the light theme got a Leave button coloured for paper
+   * Without this block a reader in the light theme got a Leave button coloured for white
    * and drawn on a dark room, and every assertion above still passed: they all measure
    * against `--background`, which is the one surface these controls never touch.
    */
