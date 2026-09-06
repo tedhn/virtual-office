@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react"
-import { GRID_PX, type Size } from "./types"
+import { FLOOR_GRID, FLOOR_SURFACE } from "./floorSurface"
+import type { Size } from "./types"
 
 interface FloorCanvasProps {
   /** The Floor's dimensions in world px. Everything inside is drawn in that space. */
@@ -44,15 +45,13 @@ export function FloorCanvas({ floor, children, onPointerDown }: FloorCanvasProps
       {/* Sizer takes the scaled footprint, so centring measures the drawn size. */}
       <div style={{ width: floor.width * scale, height: floor.height * scale }}>
         <div
-          className="relative overflow-hidden rounded-xl border-2 border-black/40 bg-neutral-200 dark:border-white/25 dark:bg-neutral-900"
+          className={FLOOR_SURFACE}
           style={{
+            ...FLOOR_GRID,
             width: floor.width,
             height: floor.height,
             transform: `scale(${scale})`,
             transformOrigin: "top left",
-            backgroundImage:
-              "linear-gradient(to right, rgba(0,0,0,.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,.06) 1px, transparent 1px)",
-            backgroundSize: `${GRID_PX}px ${GRID_PX}px`,
           }}
           onPointerDown={onPointerDown}
         >

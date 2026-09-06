@@ -25,5 +25,9 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  /* Tests are not app code and do not ship: they run in Node, and some of them read the
+     repo off disk. `tsconfig.tests.json` checks them, with Node's types instead of Vite's,
+     so that a `node:fs` import stays impossible in anything the browser loads. */
+  "exclude": ["src/**/*.test.ts"]
 }

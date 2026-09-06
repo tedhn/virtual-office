@@ -90,20 +90,23 @@ export function Avatar({
         )}
         {/* Talking indicator: expanding pulse ring while speaking. */}
         {speaking && (
-          <span className="absolute inset-0 rounded-full border-2 border-green-400 animate-ping" />
+          <span className="absolute inset-0 rounded-full border-2 border-floor-speaking animate-ping" />
         )}
         <div
           className={[
-            "rounded-full flex h-full w-full items-center justify-center overflow-hidden font-semibold text-white shadow-md [&_video]:h-full [&_video]:w-full [&_video]:object-cover",
+            "rounded-full flex h-full w-full items-center justify-center overflow-hidden font-semibold text-floor-panel-foreground shadow-md [&_video]:h-full [&_video]:w-full [&_video]:object-cover",
             canExpand ? "pointer-events-auto cursor-pointer" : "",
           ].join(" ")}
           onClick={canExpand ? () => onExpand?.(expandTrack) : undefined}
           style={{
-            background: showVideo ? "#000" : color,
-            outline: isSelf ? "3px solid white" : "none",
+            background: showVideo ? "var(--floor-video-ground)" : color,
+            // Your own circle is ringed, so you can find yourself on a Floor full of
+            // people; speaking rings it in the Floor's speaking colour instead, which is
+            // the same green the pulse above uses and the roster uses beside a name.
+            outline: isSelf ? "3px solid var(--floor-you)" : "none",
             boxShadow: speaking
-              ? "0 0 0 3px #4ade80, 0 2px 6px rgba(0,0,0,.35)"
-              : "0 2px 6px rgba(0,0,0,.3)",
+              ? "0 0 0 3px var(--floor-speaking), var(--shadow-zone)"
+              : "var(--shadow-zone)",
             fontSize: AVATAR_SIZE * 0.36,
           }}
         >
@@ -126,20 +129,20 @@ export function Avatar({
         </div>
         {/* Status badge. Deafen implies mute, so it takes over the badge slot when set. */}
         {StatusIcon && (
-          <span className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-red-600 text-white ring-2 ring-white dark:ring-neutral-900">
+          <span className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-floor-alert text-floor-panel-foreground ring-2 ring-floor-surface">
             <StatusIcon className="size-2.5" />
           </span>
         )}
         {/* Screen-share badge (bottom-left, opposite the mic badge): this avatar is sharing a
             screen — click to open it. Only set when the screen is visible to you (same room). */}
         {sharingScreen && (
-          <span className="absolute -bottom-0.5 -left-0.5 flex size-4 items-center justify-center rounded-full bg-blue-600 text-white ring-2 ring-white dark:ring-neutral-900">
+          <span className="absolute -bottom-0.5 -left-0.5 flex size-4 items-center justify-center rounded-full bg-floor-share text-floor-panel-foreground ring-2 ring-floor-surface">
             <MonitorUp className="size-2.5" />
           </span>
         )}
         {/* Watcher count (top-right): how many people are currently viewing this screen. */}
         {watchers > 0 && (
-          <span className="absolute -top-1 -right-1 flex items-center gap-0.5 rounded-full bg-black/75 px-1 py-px text-[9px] font-semibold leading-none text-white ring-2 ring-white dark:ring-neutral-900">
+          <span className="absolute -top-1 -right-1 flex items-center gap-0.5 rounded-full bg-floor-panel px-1 py-px text-[9px] font-semibold leading-none text-floor-panel-foreground ring-2 ring-floor-surface">
             <Eye className="size-2.5" />
             {watchers}
           </span>
@@ -147,8 +150,8 @@ export function Avatar({
       </div>
       <span
         className={[
-          "mt-1 flex max-w-[160px] items-center gap-1 rounded px-1.5 py-0.5 text-[11px] leading-none text-white",
-          speaking ? "bg-green-600/80" : "bg-black/60",
+          "mt-1 flex max-w-[160px] items-center gap-1 rounded px-1.5 py-0.5 text-[11px] leading-none text-floor-panel-foreground",
+          speaking ? "bg-floor-speaking-label" : "bg-floor-panel",
         ].join(" ")}
       >
         {speaking && <Volume2 className="size-3 shrink-0" />}

@@ -459,8 +459,8 @@ export function InsideOffice({
       <div
         className={[
           isMobile
-            ? "absolute left-2 top-2 z-40 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white"
-            : "absolute left-4 top-4 rounded-md bg-black/60 px-3 py-2 text-sm text-white",
+            ? "absolute left-2 top-2 z-40 rounded-md bg-floor-panel px-2 py-1 text-[11px] text-floor-panel-foreground"
+            : "absolute left-4 top-4 rounded-md bg-floor-panel px-3 py-2 text-sm text-floor-panel-foreground",
           hudFadeClass,
         ].join(" ")}
       >
@@ -471,8 +471,8 @@ export function InsideOffice({
       <div
         className={[
           isMobile
-            ? "absolute left-2 top-11 z-40 max-h-[45%] w-36 overflow-auto rounded-md bg-black/60 px-2 py-1 text-[10px] text-white"
-            : "absolute right-4 top-4 max-h-[60vh] w-48 overflow-auto rounded-md bg-black/60 px-3 py-2 text-white",
+            ? "absolute left-2 top-11 z-40 max-h-[45%] w-36 overflow-auto rounded-md bg-floor-panel px-2 py-1 text-[10px] text-floor-panel-foreground"
+            : "absolute right-4 top-4 max-h-[60vh] w-48 overflow-auto rounded-md bg-floor-panel px-3 py-2 text-floor-panel-foreground",
           hudFadeClass,
         ].join(" ")}
       >
@@ -486,13 +486,13 @@ export function InsideOffice({
             const muted = isSelf ? !!isMute : mutedIds.has(p.userId)
             const isDeafened = isSelf ? deafened : !!positions[p.userId]?.deafened
             return (
-              <li key={p.userId} className="flex items-center gap-1.5 text-xs text-white/85">
+              <li key={p.userId} className="flex items-center gap-1.5 text-xs text-floor-panel-foreground">
                 {isDeafened ? (
-                  <HeadphoneOff className="size-3 shrink-0 text-red-400" />
+                  <HeadphoneOff className="size-3 shrink-0 text-floor-alert" />
                 ) : muted ? (
-                  <MicOff className="size-3 shrink-0 text-red-400" />
+                  <MicOff className="size-3 shrink-0 text-floor-alert" />
                 ) : p.isSpeaking ? (
-                  <Volume2 className="size-3 shrink-0 text-green-400" />
+                  <Volume2 className="size-3 shrink-0 text-floor-speaking" />
                 ) : (
                   <span className="inline-block size-3 shrink-0" />
                 )}
@@ -533,9 +533,14 @@ export function InsideOffice({
       ) : (
       /* preventDefault on mousedown so a click fires the action but never parks focus on
           the button — otherwise Enter would re-toggle the last-clicked control (or worse,
-          re-trigger Leave) instead of opening the chat. Keyboard Tab-focus is unaffected. */
+          re-trigger Leave) instead of opening the chat. Keyboard Tab-focus is unaffected.
+
+          `dark` on a Floor that has no theme: these are ordinary chrome Buttons drawn on
+          the dark Floor rather than on the page, and the dark chrome palette is the one
+          designed for a dark ground. It is what makes a Leave button legible to a reader
+          in the light theme (ADR-0012). */
       <div
-        className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2"
+        className="dark absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2"
         onMouseDown={(e) => {
           if ((e.target as HTMLElement).closest("button")) e.preventDefault()
         }}
@@ -598,15 +603,15 @@ export function InsideOffice({
 
       {showInfo && (
         <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          className="absolute inset-0 z-50 flex items-center justify-center bg-floor-scrim p-4"
           onClick={() => setShowInfo(false)}
         >
           <div
-            className="relative max-h-[80vh] w-full max-w-md overflow-auto rounded-lg bg-white p-5 text-sm text-neutral-800 shadow-xl dark:bg-neutral-900 dark:text-neutral-100"
+            className="relative max-h-[80vh] w-full max-w-md overflow-auto rounded-xl bg-popover p-5 text-sm text-popover-foreground shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <button
-              className="absolute right-3 top-3 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+              className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
               onClick={() => setShowInfo(false)}
               aria-label="Close"
             >
@@ -616,20 +621,20 @@ export function InsideOffice({
             <dl className="space-y-3">
               <div>
                 <dt className="font-medium">Moving</dt>
-                <dd className="text-neutral-600 dark:text-neutral-400">
+                <dd className="text-muted-foreground">
                   WASD or arrow keys. Tables and walls are solid — you can't walk through them.
                 </dd>
               </div>
               <div>
                 <dt className="font-medium">Proximity voice</dt>
-                <dd className="text-neutral-600 dark:text-neutral-400">
+                <dd className="text-muted-foreground">
                   Out in the open you hear people near you at full volume; it fades with
                   distance and goes silent once they're far away.
                 </dd>
               </div>
               <div>
                 <dt className="font-medium">Rooms are private</dt>
-                <dd className="text-neutral-600 dark:text-neutral-400">
+                <dd className="text-muted-foreground">
                   Inside a private room you only hear <strong>and see</strong> people in
                   that same room. People outside <strong>cannot</strong> hear or see into
                   it, and you <strong>cannot</strong> hear or see out. Click a room to
@@ -639,7 +644,7 @@ export function InsideOffice({
               </div>
               <div>
                 <dt className="font-medium">Tables &amp; seats</dt>
-                <dd className="text-neutral-600 dark:text-neutral-400">
+                <dd className="text-muted-foreground">
                   Click an empty chair to walk over and sit. People at the{" "}
                   <strong>same table</strong> hear each other clearly. Taken chairs are
                   filled in; a full table can't be joined. Click your own chair (or “Stand
@@ -648,7 +653,7 @@ export function InsideOffice({
               </div>
               <div>
                 <dt className="font-medium">Video</dt>
-                <dd className="text-neutral-600 dark:text-neutral-400">
+                <dd className="text-muted-foreground">
                   Camera is off by default — hit “Start video” to share it in your avatar
                   circle. You only see the video of people who share your space: same room,
                   or both out in the open. Room video stays private to that room.
@@ -656,7 +661,7 @@ export function InsideOffice({
               </div>
               <div>
                 <dt className="font-medium">Screen sharing</dt>
-                <dd className="text-neutral-600 dark:text-neutral-400">
+                <dd className="text-muted-foreground">
                   Hit “Share screen” (desktop) to present a window or your whole screen. A
                   blue monitor badge appears on your avatar; anyone sharing your space can
                   click that avatar to watch the screen full-size. It follows the same privacy
@@ -665,7 +670,7 @@ export function InsideOffice({
               </div>
               <div>
                 <dt className="font-medium">Chat</dt>
-                <dd className="text-neutral-600 dark:text-neutral-400">
+                <dd className="text-muted-foreground">
                   Press <strong>Enter</strong> to start typing, then <strong>Enter</strong> to
                   send (empty <strong>Enter</strong> or <strong>Esc</strong> closes it).
                   Messages float above your avatar as a speech bubble and stay private to your
@@ -674,7 +679,7 @@ export function InsideOffice({
               </div>
               <div>
                 <dt className="font-medium">Mic &amp; who's here</dt>
-                <dd className="text-neutral-600 dark:text-neutral-400">
+                <dd className="text-muted-foreground">
                   Toggle Mute anytime. A speaking avatar shows a green pulse; a muted one a
                   red mic badge. <strong>Deafen</strong> silences everyone else and mutes you
                   too; unmuting lifts it. The roster shows everyone in this office.

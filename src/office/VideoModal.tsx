@@ -139,7 +139,7 @@ export function VideoModal({
   return (
     <div
       ref={backdropRef}
-      className={`absolute inset-0 z-50 flex items-center justify-center bg-black/80 ${
+      className={`absolute inset-0 z-50 flex items-center justify-center bg-floor-scrim ${
         isFullscreen ? "" : "p-4"
       }`}
       onClick={onClose}
@@ -161,14 +161,14 @@ export function VideoModal({
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute right-2 top-2 z-10 rounded-full bg-black/60 p-1.5 text-white/80 hover:text-white"
+          className="absolute right-2 top-2 z-10 rounded-full bg-floor-panel p-1.5 text-floor-label hover:text-floor-panel-foreground"
           onClick={onClose}
           aria-label="Close"
         >
           <X className="size-5" />
         </button>
         <div
-          className={`vo-video-fit flex h-full w-full items-center justify-center overflow-hidden bg-black [&_video]:h-full [&_video]:w-full ${
+          className={`vo-video-fit flex h-full w-full items-center justify-center overflow-hidden bg-floor-video-ground [&_video]:h-full [&_video]:w-full ${
             isFullscreen ? "vo-video-cover" : "rounded-xl shadow-2xl"
           }`}
         >
@@ -187,7 +187,7 @@ export function VideoModal({
         {/* Fullscreen toggle, bottom-right. Sits below the camera PiP, which shifts up to clear it. */}
         {canFullscreen && (
           <button
-            className="absolute bottom-3 right-3 z-10 rounded-full bg-black/60 p-1.5 text-white/80 hover:text-white"
+            className="absolute bottom-3 right-3 z-10 rounded-full bg-floor-panel p-1.5 text-floor-label hover:text-floor-panel-foreground"
             onClick={toggleFullscreen}
             aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -197,7 +197,7 @@ export function VideoModal({
         )}
         {/* Camera PiP: the sharer's face, over the bottom-right of the screen view. */}
         {showCameraPip && (
-          <div className="absolute bottom-14 right-3 aspect-video w-1/4 min-w-[120px] max-w-[240px] overflow-hidden rounded-lg border border-white/25 bg-black shadow-lg [&_video]:h-full [&_video]:w-full [&_video]:object-cover">
+          <div className="absolute bottom-14 right-3 aspect-video w-1/4 min-w-[120px] max-w-[240px] overflow-hidden rounded-lg border border-floor-edge bg-floor-video-ground shadow-lg [&_video]:h-full [&_video]:w-full [&_video]:object-cover">
             <ParticipantView
               participant={participant}
               trackType="videoTrack"
@@ -208,12 +208,12 @@ export function VideoModal({
             />
           </div>
         )}
-        <div className="absolute bottom-3 left-3 rounded-md bg-black/60 px-2.5 py-1 text-sm text-white">
+        <div className="absolute bottom-3 left-3 rounded-md bg-floor-panel px-2.5 py-1 text-sm text-floor-panel-foreground">
           {name}
         </div>
         {/* Watcher count: how many people are viewing this screen right now (incl. you). */}
         {watchers > 0 && (
-          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2.5 py-1 text-sm text-white">
+          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-floor-panel px-2.5 py-1 text-sm text-floor-panel-foreground">
             <Eye className="size-4" />
             {watchers} watching
           </div>

@@ -1,5 +1,7 @@
-import { isPrivateRoom, rectToPx, seatSlots, type Layout, type Zone } from "./layout"
+import { DoorOpen, Lock } from "lucide-react"
+import { rectToPx, seatSlots, type Layout, type Zone } from "./layout"
 import { AVATAR_SIZE, type Position } from "./types"
+import { seatAppearance, zoneAppearance, type ZoneMark } from "./zoneAppearance"
 
 interface FloorLayoutProps {
   /** The office being drawn: floor dimensions plus every zone on it. */
@@ -20,6 +22,27 @@ const ROOM_BORDER = 2 // px
 const SEAT_D = AVATAR_SIZE * 0.72 // seat-indicator diameter
 const HALF = AVATAR_SIZE / 2
 
+/** The glyph for a Room's privacy, drawn beside its name. See `zoneAppearance`. */
+const MARK_ICON: Record<Exclude<ZoneMark, null>, typeof Lock> = {
+  private: Lock,
+  nonprivate: DoorOpen,
+}
+
+/** The mark as a picture. The words beside it are `MARK_LABEL`'s, for readers who need them. */
+function MarkIcon({ mark }: { mark: Exclude<ZoneMark, null> }) {
+  const Icon = MARK_ICON[mark]
+  return <Icon className="size-4 shrink-0" aria-hidden focusable="false" />
+}
+
+/**
+ * The one thing a Room's mark has to say, in words, for anyone who cannot see it: whether
+ * walking in cuts you off from the Floor.
+ */
+const MARK_LABEL: Record<Exclude<ZoneMark, null>, string> = {
+  private: "Private room: voices, video and chat stay inside",
+  nonprivate: "Non-private room: voices, video and chat carry to the open floor",
+}
+
 /**
  * Draws the office layout beneath the avatars: Rooms (click to join/leave; a private one
  * isolates audio, video and chat), Tables (non-interactive furniture) and the chairs
@@ -28,6 +51,10 @@ const HALF = AVATAR_SIZE / 2
  * floor, so it draws nothing — `EditorFloor` marks it for the Owner instead, because a
  * Zone that has to be moved has to be findable, and a Visitor being shown where the
  * arrivals area is would be a promise the Office does not keep.
+ *
+ * What each Zone is painted with is `zoneAppearance`'s, not this file's: named tokens
+ * rather than opacities guessed at here, and — for the difference between a private Room
+ * and a non-private one — three signals that agree rather than a hue on its own.
  *
  * A Room edge on a perimeter wall drops its border and squares that corner so it merges
  * into the wall as one line.
@@ -41,13 +68,14 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
     <div className="absolute inset-0 pointer-events-none">
       {layout.zones.map((zone) => {
         const box = rectToPx(zone.rect, layout.floor)
+        const appearance = zoneAppearance(zone)
 
         // Walls: solid bars, not interactive.
         if (zone.kind === "wall") {
           return (
             <div
               key={zone.id}
-              className="absolute rounded-sm bg-black/45 pointer-events-none dark:bg-white/35"
+              className={`absolute rounded-sm pointer-events-none ${appearance.className}`}
               style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
             />
           )
@@ -58,7 +86,7 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
           return (
             <div
               key={zone.id}
-              className="absolute bg-black/[.07] pointer-events-none dark:bg-white/[.05]"
+              className={`absolute pointer-events-none ${appearance.className}`}
               style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
             />
           )
@@ -70,35 +98,27 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
         // Tables: furniture only — you interact with the chairs, not the table. Styling
         // is cosmetic; a dining table behaves exactly like a plain one.
         if (zone.kind === "table") {
-          const dining = zone.style === "dining"
           return (
             <div
               key={zone.id}
-              className={[
-                "absolute flex items-center justify-center rounded-lg pointer-events-none",
-                dining
-                  ? "border border-amber-800/40 bg-amber-600/25 dark:border-amber-300/30 dark:bg-amber-400/15"
-                  : "border border-black/15 bg-black/10 dark:border-white/15 dark:bg-white/10",
-              ].join(" ")}
+              className={`absolute flex items-center justify-center rounded-lg border pointer-events-none ${appearance.className}`}
               style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
             >
               {zone.label && (
-                <span className="select-none font-semibold text-black/40 dark:text-white/40">
-                  {zone.label}
-                </span>
+                <span className="select-none font-semibold text-floor-label">{zone.label}</span>
               )}
             </div>
           )
         }
 
-        // Rooms: click to join / leave. A non-private one is tinted differently, since
-        // walking in doesn't cut you off from the open Floor.
+        // Rooms: click to join / leave. A non-private one is tinted, bordered and marked
+        // differently, since walking in doesn't cut you off from the open Floor.
         const r = zone.rect
         const onL = r.x <= EPS
         const onR = r.x + r.w >= 1 - EPS
         const onT = r.y <= EPS
         const onB = r.y + r.h >= 1 - EPS
-        const nonPrivate = !isPrivateRoom(zone)
+        const mark = appearance.mark
         return (
           <div
             key={zone.id}
@@ -106,16 +126,14 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
             className={[
               "group absolute flex items-center justify-center",
               onEnter ? "cursor-pointer pointer-events-auto" : "pointer-events-none",
-              nonPrivate
-                ? "border-cyan-700/40 bg-cyan-500/[.10] hover:bg-cyan-500/[.18] dark:border-cyan-300/30 dark:bg-cyan-400/[.10] dark:hover:bg-cyan-400/[.18]"
-                : "border-black/30 bg-black/[.04] hover:bg-black/[.08] dark:border-white/25 dark:bg-white/[.04] dark:hover:bg-white/[.08]",
+              appearance.className,
             ].join(" ")}
             style={{
               left: box.left,
               top: box.top,
               width: box.width,
               height: box.height,
-              borderStyle: "solid",
+              borderStyle: appearance.borderStyle,
               borderTopWidth: onT ? 0 : ROOM_BORDER,
               borderBottomWidth: onB ? 0 : ROOM_BORDER,
               borderLeftWidth: onL ? 0 : ROOM_BORDER,
@@ -126,13 +144,21 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
               borderBottomRightRadius: onB || onR ? 0 : ROOM_RADIUS,
             }}
           >
-            {zone.label && (
-              <span className="select-none font-semibold text-black/40 dark:text-white/40 group-hover:opacity-0">
-                {zone.label}
-              </span>
-            )}
+            {/* Name and privacy mark. The mark is drawn whether or not the Room is named,
+                because it is the label that is decoration here and the mark that is not:
+                which side of a private wall you are about to step over is the one thing
+                this Zone has to say.
+
+                It is also the channel that always survives. A Room flush against a
+                perimeter wall drops that edge's border to merge into it, which costs the
+                solid-versus-broken signal on that side; the glyph is drawn regardless. */}
+            <span className="flex select-none items-center gap-1.5 font-semibold text-floor-label group-hover:opacity-0">
+              {mark && <MarkIcon mark={mark} />}
+              {zone.label}
+              {mark && <span className="sr-only">{MARK_LABEL[mark]}</span>}
+            </span>
             {onEnter && (
-              <span className="pointer-events-none absolute rounded-full bg-black/75 px-3 py-1 text-sm font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 dark:bg-white/90 dark:text-black">
+              <span className="pointer-events-none absolute rounded-full bg-floor-prompt px-3 py-1 text-sm font-medium text-floor-prompt-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
                 {insideRoom === zone.id ? `Leave ${zone.label}` : `Join ${zone.label}`}
               </span>
             )}
@@ -146,22 +172,25 @@ export function FloorLayout({ layout, insideRoom, occupied, onEnter, onSit }: Fl
         .flatMap((z) =>
           seatSlots(layout, z, HALF).map((s, i) => {
             const taken = occupied.some((o) => Math.hypot(o.x - s.x, o.y - s.y) < HALF * 1.5)
-            const sittable = onSit && !taken
+            const sittable = !!onSit && !taken
+            const seat = seatAppearance({ taken, sittable })
             return (
               <div
                 key={`${z.id}-seat-${i}`}
                 onClick={sittable ? () => onSit(z, s) : undefined}
-                title={sittable ? "Sit here" : undefined}
+                title={sittable ? "Sit here" : taken ? "Taken" : undefined}
                 className={[
                   "absolute rounded-full border",
-                  taken
-                    ? "border-black/25 bg-black/25 pointer-events-none dark:border-white/25 dark:bg-white/25"
-                    : "border-dashed border-black/40 dark:border-white/40",
-                  sittable
-                    ? "cursor-pointer pointer-events-auto hover:bg-black/15 dark:hover:bg-white/15"
-                    : "pointer-events-none",
+                  sittable ? "cursor-pointer pointer-events-auto" : "pointer-events-none",
+                  seat.className,
                 ].join(" ")}
-                style={{ width: SEAT_D, height: SEAT_D, left: s.x - SEAT_D / 2, top: s.y - SEAT_D / 2 }}
+                style={{
+                  width: SEAT_D,
+                  height: SEAT_D,
+                  left: s.x - SEAT_D / 2,
+                  top: s.y - SEAT_D / 2,
+                  borderStyle: seat.borderStyle,
+                }}
               />
             )
           }),

@@ -3,6 +3,7 @@ import { FloorCanvas } from "../FloorCanvas"
 import { FloorLayout } from "../FloorLayout"
 import { rectToPx, type Layout } from "../layout"
 import { GRID_PX } from "../types"
+import { zoneAppearance } from "../zoneAppearance"
 import { moveZone, resizeZone, RESIZE_HANDLES, type ResizeHandle } from "./layoutEdits"
 
 interface EditorFloorProps {
@@ -133,21 +134,23 @@ export function EditorFloor({ layout, selectedId, onSelect, onChange }: EditorFl
               .filter((zone) => zone.kind === "spawn")
               .map((zone) => {
                 const box = rectToPx(zone.rect, floor)
+                const appearance = zoneAppearance(zone)
                 return (
                   <div
                     key={`${zone.id}-mark`}
-                    className="pointer-events-none absolute flex items-center justify-center overflow-hidden border-dashed border-emerald-700/70 bg-emerald-500/[.12] dark:border-emerald-300/70 dark:bg-emerald-300/[.12]"
+                    className={`pointer-events-none absolute flex items-center justify-center overflow-hidden ${appearance.className}`}
                     style={{
                       left: box.left,
                       top: box.top,
                       width: box.width,
                       height: box.height,
                       borderWidth: world(SPAWN_BORDER_PX),
+                      borderStyle: appearance.borderStyle,
                       borderRadius: world(4),
                     }}
                   >
                     <span
-                      className="font-semibold whitespace-nowrap text-emerald-800 dark:text-emerald-200"
+                      className="font-semibold whitespace-nowrap"
                       style={{ fontSize: world(SPAWN_LABEL_PX) }}
                     >
                       {zone.label ?? "Spawn"}
@@ -176,7 +179,7 @@ export function EditorFloor({ layout, selectedId, onSelect, onChange }: EditorFl
             {selected && selectedBox && (
               <>
                 <div
-                  className="pointer-events-none absolute border-sky-500"
+                  className="pointer-events-none absolute border-floor-select"
                   style={{
                     left: selectedBox.left - outline,
                     top: selectedBox.top - outline,
@@ -192,7 +195,7 @@ export function EditorFloor({ layout, selectedId, onSelect, onChange }: EditorFl
                   return (
                     <div
                       key={handle}
-                      className="absolute rounded-[1px] border-white bg-sky-500"
+                      className="absolute rounded-[1px] border-floor-select-grip bg-floor-select"
                       style={{
                         left: selectedBox.left + selectedBox.width * fx - handleSize / 2,
                         top: selectedBox.top + selectedBox.height * fy - handleSize / 2,

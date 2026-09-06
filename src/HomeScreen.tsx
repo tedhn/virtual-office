@@ -38,7 +38,7 @@ export function HomeScreen({ auth }: HomeScreenProps) {
   return (
     <div className="min-h-svh flex flex-col items-center justify-center gap-6 p-6">
       <div className="flex flex-col items-center gap-1 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight">Virtual Office</h1>
+        <h1 className="text-3xl">Virtual Office</h1>
         <p className="text-muted-foreground text-sm">
           A floor to walk around on together. Voices fade in when you get close.
         </p>

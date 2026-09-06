@@ -44,7 +44,7 @@ export function OfficeView({ slug, auth }: OfficeViewProps) {
   if (lookup.status === "error") {
     return (
       <div className="min-h-svh flex flex-col items-center justify-center gap-2 p-6 text-center">
-        <h1 className="text-xl font-semibold tracking-tight">This office would not open</h1>
+        <h1 className="text-xl">This office would not open</h1>
         <p className="text-destructive max-w-sm text-sm">{lookup.message}</p>
       </div>
     )
@@ -66,7 +66,7 @@ function TurnedOut({ officeName }: { officeName: string }) {
   return (
     <div className="min-h-svh flex flex-col items-center justify-center gap-6 p-6 text-center">
       <div className="flex flex-col items-center gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{officeName} is gone</h1>
+        <h1 className="text-2xl">{officeName} is gone</h1>
         <p className="text-muted-foreground max-w-sm text-sm">
           Its owner took it down while you were inside, so you have been turned out. This
           address doesn't lead to an office any more.

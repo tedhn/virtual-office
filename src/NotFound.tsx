@@ -12,7 +12,7 @@ export function NotFound() {
   return (
     <div className="min-h-svh flex flex-col items-center justify-center gap-6 p-6 text-center">
       <div className="flex flex-col items-center gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight">No office here</h1>
+        <h1 className="text-3xl">No office here</h1>
         <p className="text-muted-foreground max-w-sm text-sm">
           This address doesn't lead to an office. It may never have, or the office that was
           here may be gone — either way, the link cannot be followed.

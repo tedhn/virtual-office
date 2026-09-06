@@ -63,7 +63,10 @@ export function MobileControls({
 }: MobileControlsProps) {
   const ActionIcon = action ? ACTION_ICON[action.kind] : null
   return (
-    <>
+    // `dark` because every Button below is drawn on the Floor rather than on the page, and
+    // the dark chrome palette is the one meant for a dark ground (ADR-0012). `contents` so
+    // the wrapper adds no box: each control still positions against the Office beneath it.
+    <div className="dark contents">
       <FloatingJoystick onMove={move} />
 
       {/* Contextual proximity action, bottom-center. Above the joystick zone (z-30) so a press
@@ -130,6 +133,6 @@ export function MobileControls({
           <MessageCircle className="size-5" />
         </Button>
       )}
-    </>
+    </div>
   )
 }

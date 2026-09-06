@@ -35,21 +35,14 @@
 }
 
 @theme inline {
+    /* One face, two roles. A display face would be the other way to tell a heading from a
+       paragraph; a deliberate weight and tracking scale is the way that costs no download,
+       and it is applied to headings in the base layer below rather than remembered at each
+       call site. */
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
+    --tracking-heading: -0.02em;
+
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
@@ -68,6 +61,57 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+
+    /* The Floor and everything drawn on it. Named for what the colour means rather than
+       what it looks like, so `bg-zone-wall` says what it is and one edit below repaints
+       every Floor in the product. */
+    --color-floor-surface: var(--floor-surface);
+    --color-floor-edge: var(--floor-edge);
+    --color-floor-grid: var(--floor-grid);
+    --color-floor-label: var(--floor-label);
+    --color-floor-panel: var(--floor-panel);
+    --color-floor-panel-foreground: var(--floor-panel-foreground);
+    --color-floor-prompt: var(--floor-prompt);
+    --color-floor-prompt-foreground: var(--floor-prompt-foreground);
+    --color-floor-reach: var(--floor-reach);
+    --color-floor-reach-near: var(--floor-reach-near);
+    --color-floor-select: var(--floor-select);
+    --color-floor-select-grip: var(--floor-select-grip);
+    --color-floor-scrim: var(--floor-scrim);
+    --color-floor-you: var(--floor-you);
+    --color-floor-speaking: var(--floor-speaking);
+    --color-floor-speaking-label: var(--floor-speaking-label);
+    --color-floor-alert: var(--floor-alert);
+    --color-floor-share: var(--floor-share);
+    --color-floor-control: var(--floor-control);
+    --color-floor-control-knob: var(--floor-control-knob);
+    --color-floor-chat-you: var(--floor-chat-you);
+    --color-floor-chat-peer: var(--floor-chat-peer);
+    --color-floor-video-ground: var(--floor-video-ground);
+    --color-zone-wall: var(--zone-wall);
+    --color-zone-exterior: var(--zone-exterior);
+    --color-zone-room-private: var(--zone-room-private);
+    --color-zone-room-private-hover: var(--zone-room-private-hover);
+    --color-zone-room-private-border: var(--zone-room-private-border);
+    --color-zone-room-nonprivate: var(--zone-room-nonprivate);
+    --color-zone-room-nonprivate-hover: var(--zone-room-nonprivate-hover);
+    --color-zone-room-nonprivate-border: var(--zone-room-nonprivate-border);
+    --color-zone-table: var(--zone-table);
+    --color-zone-table-border: var(--zone-table-border);
+    --color-zone-dining: var(--zone-dining);
+    --color-zone-dining-border: var(--zone-dining-border);
+    --color-zone-seat: var(--zone-seat);
+    --color-zone-seat-hover: var(--zone-seat-hover);
+    --color-zone-seat-taken: var(--zone-seat-taken);
+    --color-zone-spawn: var(--zone-spawn);
+    --color-zone-spawn-border: var(--zone-spawn-border);
+    --color-zone-spawn-label: var(--zone-spawn-label);
+
+    /* A Floor is a room seen from above, so the things standing on it cast something.
+       Two depths only: furniture sits on the Floor, a Wall rises off it. */
+    --shadow-zone: 0 1px 3px oklch(0.12 0.012 58 / 45%);
+    --shadow-wall: 0 3px 8px oklch(0.12 0.012 58 / 55%);
+
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -75,75 +119,132 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+    /* The Floor's own corner. Larger than any chrome radius on purpose: it reads as a
+       surface the chrome is arranged around rather than another card among the cards. */
+    --radius-surface: 1rem;
 }
 
+/*
+ * The palette.
+ *
+ * Two surfaces, not two themes. The chrome — the front door, the join screen, the
+ * editor's inspector, the dialogs — is paper: warm, light by default, dark when the
+ * reader's system asks for it. The Floor is the other surface, and it is dark in either
+ * theme, because it is the thing being looked at rather than the thing around it: Avatars,
+ * live camera circles and Zone tints all read against dark, and a Floor that inverted with
+ * the chrome would be two different products to two readers.
+ *
+ * The line between them is where a thing is drawn, not what it is. The in-Office HUD is
+ * panels floating on the Floor, so it takes `--floor-*` colours; the help dialog it opens
+ * covers the Floor rather than sitting on it, so it takes the chrome's. See ADR-0012.
+ *
+ * So `.dark` carries chrome tokens only. The `--floor-*` and `--zone-*` tokens are
+ * declared once, here, and `palette.test.ts` holds both halves of that rule: the chrome
+ * tokens have to exist in both blocks, and the Floor tokens in neither but this one.
+ *
+ * Every colour is a colour. Nothing here is `oklch(L 0 0)` — the ink is a warm brown-grey
+ * rather than black, the ground is paper rather than white, and the greys have a hue in
+ * them. That is also a test rather than a habit.
+ */
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
+    --background: oklch(0.973 0.006 84);
+    --foreground: oklch(0.285 0.024 55);
+    --card: oklch(0.995 0.003 84);
+    --card-foreground: oklch(0.285 0.024 55);
+    --popover: oklch(0.995 0.003 84);
+    --popover-foreground: oklch(0.285 0.024 55);
+    /* One saturated action colour, and only one. A teal deep enough to carry white. */
+    --primary: oklch(0.5 0.098 210);
+    --primary-foreground: oklch(0.985 0.008 200);
+    --secondary: oklch(0.925 0.014 78);
+    --secondary-foreground: oklch(0.32 0.024 58);
+    --muted: oklch(0.945 0.01 80);
+    --muted-foreground: oklch(0.5 0.02 62);
+    --accent: oklch(0.915 0.03 205);
+    --accent-foreground: oklch(0.33 0.07 210);
+    --destructive: oklch(0.505 0.19 27);
+    --border: oklch(0.885 0.01 78);
+    --input: oklch(0.635 0.016 76);
+    --ring: oklch(0.5 0.098 210);
     --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+
+    /* The Floor: one dark surface, in either theme. */
+    --floor-surface: oklch(0.245 0.014 58);
+    --floor-edge: oklch(0.42 0.022 60);
+    --floor-grid: oklch(0.98 0.01 84 / 8%);
+    --floor-label: oklch(0.82 0.014 78);
+    --floor-panel: oklch(0.2 0.012 58 / 82%);
+    --floor-panel-foreground: oklch(0.955 0.008 84);
+    --floor-prompt: oklch(0.95 0.01 84);
+    --floor-prompt-foreground: oklch(0.26 0.022 58);
+    /* How far a voice carries, drawn around the local Avatar: the near ring is where it is
+       still at full volume, the far one where it has faded to nothing. */
+    --floor-reach: oklch(0.98 0.01 84 / 14%);
+    --floor-reach-near: oklch(0.98 0.01 84 / 22%);
+    /* The Owner's marks on the Floor: the outline round the selected Zone and the grips on
+       it. A blue nothing else on the Floor uses, so "selected" is never mistaken for a
+       Zone's own tint. Not `--primary`, which follows the reader's theme — the Floor does
+       not. */
+    --floor-select: oklch(0.7 0.145 245);
+    --floor-select-grip: oklch(0.99 0.005 245);
+
+    /* Everything else the Floor carries. Avatars, their badges, the chat log and the
+       joystick are drawn on the Floor rather than in the chrome, so their colours belong
+       to the Floor's set and stay put when the reader's theme changes. */
+    --floor-scrim: oklch(0.14 0.012 58 / 72%);
+    --floor-you: oklch(0.99 0.004 84);
+    --floor-speaking: oklch(0.8 0.17 150);
+    --floor-speaking-label: oklch(0.47 0.12 152 / 90%);
+    --floor-alert: oklch(0.55 0.19 27);
+    --floor-share: oklch(0.52 0.17 255);
+    --floor-control: oklch(0.2 0.012 58 / 35%);
+    --floor-control-knob: oklch(0.95 0.008 84 / 88%);
+    --floor-chat-you: oklch(0.84 0.09 235);
+    --floor-chat-peer: oklch(0.86 0.09 158);
+    --floor-video-ground: oklch(0.12 0.008 58);
+
+    /* Zones, as tints on that surface. A Zone's colour is one of the channels telling it
+       from its neighbours; `zoneAppearance.ts` carries the others, because hue alone is a
+       signal some readers do not receive. */
+    --zone-wall: oklch(0.47 0.02 60);
+    --zone-exterior: oklch(0.165 0.01 55);
+    --zone-room-private: oklch(0.62 0.085 205 / 21%);
+    --zone-room-private-hover: oklch(0.62 0.085 205 / 31%);
+    --zone-room-private-border: oklch(0.74 0.09 205 / 75%);
+    --zone-room-nonprivate: oklch(0.8 0.02 80 / 9%);
+    --zone-room-nonprivate-hover: oklch(0.8 0.02 80 / 16%);
+    --zone-room-nonprivate-border: oklch(0.82 0.02 80 / 55%);
+    --zone-table: oklch(0.68 0.05 70 / 34%);
+    --zone-table-border: oklch(0.74 0.05 70 / 60%);
+    --zone-dining: oklch(0.66 0.1 62 / 28%);
+    --zone-dining-border: oklch(0.78 0.12 62 / 55%);
+    --zone-seat: oklch(0.86 0.015 80 / 78%);
+    --zone-seat-hover: oklch(0.86 0.015 80 / 20%);
+    --zone-seat-taken: oklch(0.8 0.02 78 / 85%);
+    --zone-spawn: oklch(0.7 0.1 160 / 13%);
+    --zone-spawn-border: oklch(0.78 0.11 160 / 70%);
+    --zone-spawn-label: oklch(0.86 0.1 160);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: oklch(0.205 0.012 62);
+    --foreground: oklch(0.955 0.008 84);
+    --card: oklch(0.253 0.013 62);
+    --card-foreground: oklch(0.955 0.008 84);
+    --popover: oklch(0.253 0.013 62);
+    --popover-foreground: oklch(0.955 0.008 84);
+    --primary: oklch(0.78 0.095 200);
+    --primary-foreground: oklch(0.215 0.035 210);
+    --secondary: oklch(0.31 0.014 66);
+    --secondary-foreground: oklch(0.945 0.008 84);
+    --muted: oklch(0.305 0.013 64);
+    --muted-foreground: oklch(0.745 0.014 76);
+    --accent: oklch(0.34 0.035 205);
+    --accent-foreground: oklch(0.9 0.045 200);
+    --destructive: oklch(0.745 0.145 25);
+    --border: oklch(0.98 0.008 84 / 14%);
+    --input: oklch(0.98 0.008 84 / 42%);
+    --ring: oklch(0.72 0.09 202);
 }
 
 @layer base {
@@ -155,5 +256,11 @@
     }
   html {
     @apply font-sans;
+    }
+  /* The type scale, once. Headings share the body's face, so weight and tracking are what
+     tell them apart — set here so a screen gets it by writing an `h1`, not by remembering
+     three utilities. */
+  h1, h2, h3, h4 {
+    @apply font-heading font-semibold tracking-heading;
     }
 }

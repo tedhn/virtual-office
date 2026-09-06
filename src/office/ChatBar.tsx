@@ -68,31 +68,36 @@ export function ChatBar({ onSend, onClose, currentRoom, log, localUserId, floati
       )}
       <div
         onAnimationEnd={closing ? onClose : undefined}
+        // `dark` for the same reason as the toolbar: the log and the field it sits above
+        // are drawn on the Floor, which has no theme, and the dark chrome palette is the
+        // one meant for a dark ground (ADR-0012).
         className={
           floating
-            ? `absolute inset-x-2 bottom-2 z-40 duration-200 ease-out ${
+            ? `dark absolute inset-x-2 bottom-2 z-40 duration-200 ease-out ${
                 closing
                   ? "animate-out fade-out slide-out-to-bottom-4 fill-mode-forwards"
                   : "animate-in fade-in slide-in-from-bottom-4"
               }`
-            : "absolute bottom-4 left-4 z-40 w-[min(88vw,36rem)]"
+            : "dark absolute bottom-4 left-4 z-40 w-[min(88vw,36rem)]"
         }
       >
         {visible.length > 0 && (
           <div
             ref={logRef}
-            className={`mb-2 ${floating ? "max-h-32" : "max-h-48"} overflow-y-auto rounded-md bg-black/70 px-3 py-2 text-sm text-white`}
+            className={`mb-2 ${floating ? "max-h-32" : "max-h-48"} overflow-y-auto rounded-md bg-floor-panel px-3 py-2 text-sm text-floor-panel-foreground`}
           >
             {visible.map((m) => (
               <div key={m.k} className="leading-snug">
                 <span
                   className={
-                    m.id === localUserId ? "font-medium text-sky-300" : "font-medium text-emerald-300"
+                    m.id === localUserId
+                      ? "font-medium text-floor-chat-you"
+                      : "font-medium text-floor-chat-peer"
                   }
                 >
                   {m.id === localUserId ? "You" : m.name}
                 </span>
-                <span className="text-white/50">: </span>
+                <span className="text-floor-label">: </span>
                 <span className="wrap-break-words">{m.text}</span>
               </div>
             ))}

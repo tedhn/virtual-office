@@ -69,7 +69,7 @@ export function FloatingJoystick({ onMove }: FloatingJoystickProps) {
       {stick && (
         <div className="pointer-events-none absolute inset-0 z-30">
           <div
-            className="absolute rounded-full bg-black/15 ring-1 ring-white/40 backdrop-blur-sm"
+            className="absolute rounded-full bg-floor-control ring-1 ring-floor-label backdrop-blur-sm"
             style={{
               width: RADIUS * 2,
               height: RADIUS * 2,
@@ -78,7 +78,7 @@ export function FloatingJoystick({ onMove }: FloatingJoystickProps) {
             }}
           />
           <div
-            className="absolute rounded-full bg-white/80 shadow-lg ring-1 ring-black/10"
+            className="absolute rounded-full bg-floor-control-knob shadow-lg ring-1 ring-floor-control"
             style={{
               width: RADIUS,
               height: RADIUS,

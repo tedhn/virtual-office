@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Avatar } from "./Avatar"
+import { FLOOR_GRID, FLOOR_SURFACE } from "./floorSurface"
 import { FloorLayout } from "./FloorLayout"
 import type { StreamVideoParticipant } from "@stream-io/video-react-sdk"
 import { roomContextAt, seatedTableAt, type Layout, type Zone } from "./layout"
@@ -104,20 +105,18 @@ export function OfficeFloor({
   return (
     <div
       ref={scrollRef}
-      className="relative h-full w-full overflow-hidden bg-neutral-200 dark:bg-neutral-900"
+      className="relative h-full w-full overflow-hidden bg-floor-surface"
     >
       {/* Sizer takes the scaled footprint so scrolling/camera math is correct. */}
       <div style={{ width: floor.width * scale, height: floor.height * scale }}>
         <div
-          className="relative overflow-hidden rounded-xl border-2 border-black/40 dark:border-white/25"
+          className={FLOOR_SURFACE}
           style={{
+            ...FLOOR_GRID,
             width: floor.width,
             height: floor.height,
             transform: `scale(${scale})`,
             transformOrigin: "top left",
-            backgroundImage:
-              "linear-gradient(to right, rgba(0,0,0,.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,.06) 1px, transparent 1px)",
-            backgroundSize: "40px 40px",
           }}
         >
           <FloorLayout
@@ -130,7 +129,7 @@ export function OfficeFloor({
 
           {/* Hearing range around self: outer = fade-to-silence edge, inner = full-volume zone */}
           <div
-            className="absolute rounded-full border border-dashed border-black/15 pointer-events-none"
+            className="absolute rounded-full border border-dashed border-floor-reach pointer-events-none"
             style={{
               width: OUTER_RADIUS * 2,
               height: OUTER_RADIUS * 2,
@@ -138,7 +137,7 @@ export function OfficeFloor({
             }}
           />
           <div
-            className="absolute rounded-full border border-dashed border-black/25 bg-black/5 pointer-events-none"
+            className="absolute rounded-full border border-dashed border-floor-reach-near bg-floor-reach pointer-events-none"
             style={{
               width: INNER_RADIUS * 2,
               height: INNER_RADIUS * 2,

@@ -56,7 +56,7 @@ export function JoinScreen({
   return (
     <div className="min-h-svh flex flex-col items-center justify-center gap-6 p-6">
       <div className="flex flex-col items-center gap-1 text-center">
-        <h1 className="max-w-md truncate text-3xl font-semibold tracking-tight">{officeName}</h1>
+        <h1 className="max-w-md truncate text-3xl">{officeName}</h1>
         <p className="text-muted-foreground text-sm">
           Walk around. Voices fade in when you get close.
         </p>

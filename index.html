@@ -5,6 +5,23 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>virtual-office</title>
+    <!-- Settle the theme before the first paint. `next-themes` applies the same class from
+         React, but only once the app has mounted, which is a frame or two of light chrome
+         flashed at a reader who asked for dark. Same storage key ("theme") and same
+         default (follow the system) as the provider in `main.tsx`, so the two never
+         disagree; if this fails for any reason the provider still gets there. -->
+    <script>
+      try {
+        var stored = localStorage.getItem("theme")
+        var dark =
+          stored === "dark" ||
+          (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+        document.documentElement.classList.toggle("dark", dark)
+        document.documentElement.style.colorScheme = dark ? "dark" : "light"
+      } catch (e) {
+        /* Private mode, blocked storage: the provider settles it a moment later. */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -71,7 +71,7 @@ export function OfficeEditor({ slug, auth }: OfficeEditorProps) {
   if (lookup.status === "error") {
     return (
       <div className="min-h-svh flex flex-col items-center justify-center gap-2 p-6 text-center">
-        <h1 className="text-xl font-semibold tracking-tight">This editor would not open</h1>
+        <h1 className="text-xl">This editor would not open</h1>
         <p className="text-destructive max-w-sm text-sm">{lookup.message}</p>
       </div>
     )
@@ -223,7 +223,7 @@ function DraftEditor({ office, draft }: { office: Office; draft: Layout }) {
     <div className="flex h-svh flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold tracking-tight">{office.name}</h1>
+          <h1 className="truncate text-lg">{office.name}</h1>
           <p className="text-muted-foreground text-xs">
             Editing the draft — nobody else sees this until you publish.
           </p>
