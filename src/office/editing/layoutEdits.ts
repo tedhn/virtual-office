@@ -93,6 +93,22 @@ const clamp = (value: number, low: number, high: number) =>
   Math.max(low, Math.min(high, value))
 
 /**
+ * A normalized edge put on the nearest line of a grid `snap` world px apart, or left where
+ * it is when there is no grid to land on (`snap` of 0).
+ *
+ * Worked out in the px the grid is measured in and converted back once: normalizing the
+ * pitch first and rounding against that would leave a float's worth of dust between the
+ * line the canvas drew and the line the edge landed on.
+ *
+ * An edge rather than a drag, and this is the whole point of snapping: where a Zone came
+ * from has no say in where it can end up, so a Zone already off the grid comes onto it the
+ * first time anybody touches it. Snapping the drag instead would preserve the offset
+ * forever, and two Rooms nudged to "about the same place" would stay about the same place.
+ */
+const snapEdge = (edge: number, span: number, snap: number) =>
+  snap > 0 ? (Math.round((edge * span) / snap) * snap) / span : edge
+
+/**
  * Normalized coordinates kept to six places — a thousandth of a pixel on any Floor anyone
  * will author. Every edit is computed from the rect the last one produced, so without this
  * a Zone dragged back and forth all afternoon accumulates binary-fraction dust: a stored
@@ -187,14 +203,27 @@ export function removeZone(layout: Layout, id: string): Layout {
   return { ...layout, zones: layout.zones.filter((z) => z.id !== id) }
 }
 
-/** Shift a Zone by a drag, stopping at the edges of the Floor rather than going over. */
-export function moveZone(layout: Layout, id: string, { dx, dy }: Delta): Layout {
+/**
+ * Shift a Zone by a drag, stopping at the edges of the Floor rather than going over.
+ *
+ * `snap` is the grid pitch in world px, as in `resizeZone`: the Zone's top left lands on
+ * the nearest crossing of the grid the canvas draws, and its size comes through untouched.
+ * The top left rather than the nearest of the four edges, because a Zone that is not a
+ * whole number of squares cannot have all of them on a line at once — so one corner is
+ * chosen and kept, and it is the one whose numbers the inspector shows.
+ *
+ * The Floor's own edge still wins: a Zone pushed against the right of a Floor that is not a
+ * whole number of squares wide sits flush against it, off the grid, rather than a square
+ * short of it. Flush is what the Owner was asking for by pushing.
+ */
+export function moveZone(layout: Layout, id: string, { dx, dy }: Delta, snap = 0): Layout {
+  const { width, height } = layout.floor
   return withZone(layout, id, (zone) => ({
     ...zone,
     rect: tidy({
       ...zone.rect,
-      x: clamp(zone.rect.x + dx, 0, 1 - zone.rect.w),
-      y: clamp(zone.rect.y + dy, 0, 1 - zone.rect.h),
+      x: clamp(snapEdge(zone.rect.x + dx, width, snap), 0, 1 - zone.rect.w),
+      y: clamp(snapEdge(zone.rect.y + dy, height, snap), 0, 1 - zone.rect.h),
     }),
   }))
 }
@@ -203,15 +232,31 @@ export function moveZone(layout: Layout, id: string, { dx, dy }: Delta): Layout 
  * Pull one corner or side of a Zone. The edges the handle does not name hold still, and
  * the ones it does stop at the Floor's edge in one direction and at the minimum size in
  * the other — so a resize can neither leave the Floor nor collapse the Zone.
+ *
+ * `snap` is the grid pitch in world px the dragged edges land on — `GRID_PX`, the same
+ * grid the canvas draws, or 0 to follow the pointer exactly. See `snapEdge` for why it is
+ * the edge that is snapped and not the drag; the upshot here is that two Rooms pulled to
+ * "about the same width" are the same width.
+ *
+ * A snapped edge is still clamped afterwards, and in that order, because the nearest grid
+ * line may be off the Floor or through the far edge of the Zone. So the minimum size wins
+ * over the grid: pull the bottom of a Zone thinner than one square and it stops at
+ * `MIN_ZONE_PX` instead of jumping to the line below, which is a size no grid line
+ * offers. That is the case for keeping an unsnapped drag available at all — see
+ * `EditorFloor`.
  */
 export function resizeZone(
   layout: Layout,
   id: string,
   handle: ResizeHandle,
   { dx, dy }: Delta,
+  snap = 0,
 ): Layout {
-  const minW = MIN_ZONE_PX / layout.floor.width
-  const minH = MIN_ZONE_PX / layout.floor.height
+  const { width, height } = layout.floor
+  const minW = MIN_ZONE_PX / width
+  const minH = MIN_ZONE_PX / height
+
+  const toGrid = (edge: number, span: number) => snapEdge(edge, span, snap)
 
   return withZone(layout, id, (zone) => {
     let { x: left, y: top } = zone.rect
@@ -220,10 +265,10 @@ export function resizeZone(
 
     // A handle never names two opposite edges, so each clamp can read the other edge as
     // the fixed one it is.
-    if (handle.includes("w")) left = clamp(left + dx, 0, right - minW)
-    if (handle.includes("e")) right = clamp(right + dx, left + minW, 1)
-    if (handle.includes("n")) top = clamp(top + dy, 0, bottom - minH)
-    if (handle.includes("s")) bottom = clamp(bottom + dy, top + minH, 1)
+    if (handle.includes("w")) left = clamp(toGrid(left + dx, width), 0, right - minW)
+    if (handle.includes("e")) right = clamp(toGrid(right + dx, width), left + minW, 1)
+    if (handle.includes("n")) top = clamp(toGrid(top + dy, height), 0, bottom - minH)
+    if (handle.includes("s")) bottom = clamp(toGrid(bottom + dy, height), top + minH, 1)
 
     return { ...zone, rect: tidy({ x: left, y: top, w: right - left, h: bottom - top }) }
   })

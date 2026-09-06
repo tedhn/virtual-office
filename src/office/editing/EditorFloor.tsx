@@ -2,6 +2,7 @@ import { useRef } from "react"
 import { FloorCanvas } from "../FloorCanvas"
 import { FloorLayout } from "../FloorLayout"
 import { rectToPx, type Layout } from "../layout"
+import { GRID_PX } from "../types"
 import { moveZone, resizeZone, RESIZE_HANDLES, type ResizeHandle } from "./layoutEdits"
 
 interface EditorFloorProps {
@@ -17,6 +18,8 @@ interface EditorFloorProps {
 /** Screen px, held constant however far the Floor is scaled down. */
 const HANDLE_PX = 10
 const OUTLINE_PX = 2
+const SPAWN_BORDER_PX = 2
+const SPAWN_LABEL_PX = 11
 
 /** Where each handle sits on the selected Zone, as a fraction of its box. */
 const HANDLE_SPOT: Record<ResizeHandle, { fx: number; fy: number; cursor: string }> = {
@@ -29,6 +32,21 @@ const HANDLE_SPOT: Record<ResizeHandle, { fx: number; fy: number; cursor: string
   s: { fx: 0.5, fy: 1, cursor: "ns-resize" },
   se: { fx: 1, fy: 1, cursor: "nwse-resize" },
 }
+
+/**
+ * The grid a drag lands on, unless the Owner is holding the key that turns it off.
+ *
+ * On by default because the grid is drawn under the Floor whether anyone asked for it or
+ * not, and an edge that stops a few px shy of a line it can see is the editor arguing with
+ * itself. Off while Alt is held because the grid cannot express everything a Layout can: a
+ * Wall is thinner than one square, and `MIN_ZONE_PX` is smaller than one, so without a way
+ * past the grid those sizes would be reachable only by typing them.
+ *
+ * Read from the event rather than from state, so it is the modifier held at this moment in
+ * the drag that decides — press Alt halfway through and the edge comes off the grid where
+ * the pointer is, rather than at the next pointer-down.
+ */
+const snapPitch = (e: React.PointerEvent) => (e.altKey ? 0 : GRID_PX)
 
 /** What a pointer is in the middle of doing. */
 interface Drag {
@@ -71,10 +89,11 @@ export function EditorFloor({ layout, selectedId, onSelect, onChange }: EditorFl
     if (!active || scale <= 0) return
     const dx = (e.clientX - active.startX) / scale / floor.width
     const dy = (e.clientY - active.startY) / scale / floor.height
+    const snap = snapPitch(e)
     onChange(
       active.handle
-        ? resizeZone(active.from, active.id, active.handle, { dx, dy })
-        : moveZone(active.from, active.id, { dx, dy }),
+        ? resizeZone(active.from, active.id, active.handle, { dx, dy }, snap)
+        : moveZone(active.from, active.id, { dx, dy }, snap),
     )
   }
 
@@ -102,6 +121,40 @@ export function EditorFloor({ layout, selectedId, onSelect, onChange }: EditorFl
             {/* The Zones themselves, drawn exactly as a Visitor will see them. No callbacks:
                 nothing here is a Room to be entered or a chair to be taken. */}
             <FloorLayout layout={layout} insideRoom={null} occupied={[]} />
+
+            {/* A Spawn Zone, which `FloorLayout` deliberately draws as nothing: to a Visitor
+                it is ordinary walkable floor, and a marked-off arrivals area would be a
+                promise the Office does not keep. To an Owner it is a Zone like any other —
+                one that has to be found before it can be moved, and that publishing refuses
+                an Office for overlapping a Table. Invisible until selected made it the one
+                Zone you had to go hunting for by clicking empty floor, so the editor marks
+                it and the published Office still does not. */}
+            {layout.zones
+              .filter((zone) => zone.kind === "spawn")
+              .map((zone) => {
+                const box = rectToPx(zone.rect, floor)
+                return (
+                  <div
+                    key={`${zone.id}-mark`}
+                    className="pointer-events-none absolute flex items-center justify-center overflow-hidden border-dashed border-emerald-700/70 bg-emerald-500/[.12] dark:border-emerald-300/70 dark:bg-emerald-300/[.12]"
+                    style={{
+                      left: box.left,
+                      top: box.top,
+                      width: box.width,
+                      height: box.height,
+                      borderWidth: world(SPAWN_BORDER_PX),
+                      borderRadius: world(4),
+                    }}
+                  >
+                    <span
+                      className="font-semibold whitespace-nowrap text-emerald-800 dark:text-emerald-200"
+                      style={{ fontSize: world(SPAWN_LABEL_PX) }}
+                    >
+                      {zone.label ?? "Spawn"}
+                    </span>
+                  </div>
+                )
+              })}
 
             {/* One grab box per Zone, in the order they are drawn — so the topmost Zone is
                 also the one a press finds, which is the one that looks topmost. */}

@@ -25,7 +25,9 @@ const HALF = AVATAR_SIZE / 2
  * isolates audio, video and chat), Tables (non-interactive furniture) and the chairs
  * around each Table (click a free chair to walk over and sit; taken chairs are filled
  * in). Walls and the Exterior are solid bars/regions. The Spawn Zone is ordinary open
- * floor, so it draws nothing.
+ * floor, so it draws nothing — `EditorFloor` marks it for the Owner instead, because a
+ * Zone that has to be moved has to be findable, and a Visitor being shown where the
+ * arrivals area is would be a promise the Office does not keep.
  *
  * A Room edge on a perimeter wall drops its border and squares that corner so it merges
  * into the wall as one line.

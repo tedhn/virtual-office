@@ -13,7 +13,7 @@ import { officePath } from "@/lib/routes"
 import { navigate } from "@/lib/useRoute"
 import { DEFAULT_SEATS, type Layout, type Zone, type ZoneKind } from "../layout"
 import { validatePublishableLayout } from "../layoutSchema"
-import type { Size } from "../types"
+import { GRID_PX, type Size } from "../types"
 import { EditorFloor } from "./EditorFloor"
 import {
   addZone,
@@ -380,7 +380,8 @@ function ZoneInspector({
           <h3 className="text-sm font-medium">Position and size</h3>
           <p className="text-muted-foreground text-xs">
             World px, measured from the floor's top left corner. Nothing under {MIN_ZONE_PX}
-            px, so a zone stays something you can grab.
+            px, so a zone stays something you can grab. Dragging a zone or one of its
+            edges snaps to the {GRID_PX}px grid — hold Alt to put it anywhere.
           </p>
         </div>
         {/* Each field's own range, not the floor's: an origin stops where the zone's far

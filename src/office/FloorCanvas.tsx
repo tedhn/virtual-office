@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react"
-import type { Size } from "./types"
+import { GRID_PX, type Size } from "./types"
 
 interface FloorCanvasProps {
   /** The Floor's dimensions in world px. Everything inside is drawn in that space. */
@@ -52,7 +52,7 @@ export function FloorCanvas({ floor, children, onPointerDown }: FloorCanvasProps
             transformOrigin: "top left",
             backgroundImage:
               "linear-gradient(to right, rgba(0,0,0,.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,.06) 1px, transparent 1px)",
-            backgroundSize: "40px 40px",
+            backgroundSize: `${GRID_PX}px ${GRID_PX}px`,
           }}
           onPointerDown={onPointerDown}
         >

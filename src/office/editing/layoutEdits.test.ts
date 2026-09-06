@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { validateLayout } from "../layoutSchema"
 import type { Layout } from "../layout"
+import { GRID_PX } from "../types"
 import {
   addZone,
   FLOOR_MAX_PX,
   FLOOR_MIN_PX,
+  MIN_ZONE_PX,
   moveZone,
   newZoneId,
   placeZone,
@@ -110,6 +112,48 @@ describe("Moving a Zone", () => {
   })
 })
 
+describe("Snapping a move to the grid", () => {
+  /** A Zone sitting between grid lines, which is what a typed or scaled Layout leaves. */
+  const OFF_GRID = {
+    id: "room-1",
+    kind: "room" as const,
+    rect: { x: 0.213, y: 0.187, w: 0.354, h: 0.301 },
+  }
+
+  it("puts the Zone's top left on the nearest crossing", () => {
+    // 213px + 10px dragged is 223px, nearest line 240; 187px + 10px is 197px, nearest 200.
+    const layout = moveZone(layoutOf(OFF_GRID), "room-1", { dx: 0.01, dy: 0.01 }, GRID_PX)
+    const rect = rectOf(layout, "room-1")!
+    expect(rect.x * FLOOR.width).toBeCloseTo(240)
+    expect(rect.y * FLOOR.height).toBeCloseTo(200)
+  })
+
+  it("carries the size across untouched, because a move is not a resize", () => {
+    const layout = moveZone(layoutOf(OFF_GRID), "room-1", { dx: 0.01, dy: 0.01 }, GRID_PX)
+    const rect = rectOf(layout, "room-1")!
+    expect(rect.w).toBe(OFF_GRID.rect.w)
+    expect(rect.h).toBe(OFF_GRID.rect.h)
+  })
+
+  it("sits flush against the Floor's edge, grid line or not", () => {
+    // 950px is not a whole number of squares, so flush and on the grid are different
+    // places — and a Zone flung at the edge was asking for flush.
+    const floor = { width: 950, height: 950 }
+    const layout = moveZone({ floor, zones: [OFF_GRID] }, "room-1", { dx: 5, dy: 5 }, GRID_PX)
+    const rect = rectOf(layout, "room-1")!
+    expect(rect.x + rect.w).toBeCloseTo(1)
+    expect(rect.y + rect.h).toBeCloseTo(1)
+    expect(validateLayout(layout).ok).toBe(true)
+  })
+
+  it("follows the pointer exactly with no grid asked for, which is Alt held down", () => {
+    const layout = moveZone(layoutOf(OFF_GRID), "room-1", { dx: 0.01, dy: 0.01 })
+    const rect = rectOf(layout, "room-1")!
+    expect(rect.x).toBeCloseTo(0.223)
+    expect(rect.y).toBeCloseTo(0.197)
+  })
+})
+
 describe("Resizing a Zone", () => {
   it("moves the corner dragged and leaves the opposite one where it was", () => {
     const layout = resizeZone(layoutOf(A_ROOM), "room-1", "se", { dx: 0.1, dy: 0.1 })
@@ -139,6 +183,67 @@ describe("Resizing a Zone", () => {
     const layout = resizeZone(layoutOf(A_ROOM), "room-1", "se", { dx: 5, dy: 5 })
     expect(rectOf(layout, "room-1")).toEqual({ x: 0.2, y: 0.2, w: 0.8, h: 0.8 })
     expect(validateLayout(layout).ok).toBe(true)
+  })
+})
+
+describe("Snapping a resize to the grid", () => {
+  /** A Zone whose edges are all off the grid, which is the case snapping exists for. */
+  const OFF_GRID = {
+    id: "room-1",
+    kind: "room" as const,
+    rect: { x: 0.213, y: 0.187, w: 0.354, h: 0.301 },
+  }
+
+  it("puts the dragged edge on the nearest grid line", () => {
+    // The right edge is at 567px and the drag asks for 30px more; 597px is nearer 600
+    // than 560, so the Zone ends one line further out than the pointer.
+    const layout = resizeZone(layoutOf(OFF_GRID), "room-1", "e", { dx: 0.03, dy: 0 }, GRID_PX)
+    const rect = rectOf(layout, "room-1")!
+    expect((rect.x + rect.w) * FLOOR.width).toBeCloseTo(600)
+  })
+
+  it("snaps where the edge lands, not how far it was dragged", () => {
+    // A Zone already off the grid comes onto it: two Rooms dragged to "about the same
+    // width" are the same width, which is the point of the whole thing.
+    const layout = resizeZone(layoutOf(OFF_GRID), "room-1", "nw", { dx: 0.01, dy: 0.01 }, GRID_PX)
+    const rect = rectOf(layout, "room-1")!
+    expect(rect.x * FLOOR.width).toBeCloseTo(240)
+    expect(rect.y * FLOOR.height).toBeCloseTo(200)
+  })
+
+  it("leaves the edges the handle does not name exactly where they were", () => {
+    const layout = resizeZone(layoutOf(OFF_GRID), "room-1", "e", { dx: 0.03, dy: 0.2 }, GRID_PX)
+    const rect = rectOf(layout, "room-1")!
+    expect(rect.x).toBe(OFF_GRID.rect.x)
+    expect(rect.y).toBe(OFF_GRID.rect.y)
+    expect(rect.h).toBe(OFF_GRID.rect.h)
+  })
+
+  it("keeps the minimum size when the nearest line is through the far edge", () => {
+    // Collapsing a Zone onto the line below its own top would be a grid line that costs
+    // the Owner the Zone, so the minimum wins over the grid.
+    const layout = resizeZone(layoutOf(A_ROOM), "room-1", "n", { dx: 0, dy: 1 }, GRID_PX)
+    const rect = rectOf(layout, "room-1")!
+    expect(rect.h * FLOOR.height).toBeCloseTo(MIN_ZONE_PX)
+    expect(validateLayout(layout).ok).toBe(true)
+  })
+
+  it("stops at the Floor's edge, which is not a grid line on every Floor", () => {
+    const floor = { width: 950, height: 950 }
+    const layout = resizeZone(
+      { floor, zones: [A_ROOM] },
+      "room-1",
+      "se",
+      { dx: 5, dy: 5 },
+      GRID_PX,
+    )
+    expect(rectOf(layout, "room-1")).toEqual({ x: 0.2, y: 0.2, w: 0.8, h: 0.8 })
+    expect(validateLayout(layout).ok).toBe(true)
+  })
+
+  it("follows the pointer exactly with no grid asked for, which is Alt held down", () => {
+    const dragged = resizeZone(layoutOf(OFF_GRID), "room-1", "e", { dx: 0.03, dy: 0 })
+    expect(rectOf(dragged, "room-1")!.w).toBeCloseTo(0.384)
   })
 })
 
@@ -224,9 +329,12 @@ describe("The invariant every edit holds", () => {
         const kind = kinds[Math.floor(next() * kinds.length)]
         layout = addZone(layout, kind, newZoneId(layout, kind))
       } else if (roll < 0.5) {
-        layout = moveZone(layout, id, delta)
+        layout = moveZone(layout, id, delta, next() < 0.5 ? GRID_PX : 0)
       } else if (roll < 0.75) {
-        layout = resizeZone(layout, id, RESIZE_HANDLES[Math.floor(next() * 8)], delta)
+        // Half the drags snapped, half not: an Owner holding Alt part of the time is the
+        // ordinary case, and both paths have to leave a Layout behind.
+        const snap = next() < 0.5 ? GRID_PX : 0
+        layout = resizeZone(layout, id, RESIZE_HANDLES[Math.floor(next() * 8)], delta, snap)
       } else if (roll < 0.83) {
         // Typed numbers belong in here too, and are wilder than a drag: a pointer cannot
         // ask for a Zone 4000px wide on a Floor half that, and a keyboard can.

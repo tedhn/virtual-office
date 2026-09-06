@@ -15,6 +15,19 @@ export const FLOOR_WIDTH = 900
 export const FLOOR_HEIGHT = 2000
 export const FLOOR: Size = { width: FLOOR_WIDTH, height: FLOOR_HEIGHT }
 
+/**
+ * The Floor's grid, in world px.
+ *
+ * One number, read by the two things that have to agree about it: `FloorCanvas` draws the
+ * lines, and `resizeZone` lands a dragged edge on them. A grid you can see but not land on
+ * is worse than no grid at all, so neither of them carries a 40 of its own.
+ *
+ * World px rather than screen px, so the lines stay put under the Floor as it is scaled to
+ * fit — a grid that changed pitch with the viewport would align Zones differently on a
+ * laptop than on a monitor.
+ */
+export const GRID_PX = 40
+
 /** Avatar visuals. */
 export const AVATAR_SIZE = 44 // diameter in px
 export const MOVE_SPEED = 320 // px per second
